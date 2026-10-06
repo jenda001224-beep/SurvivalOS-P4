@@ -1,3 +1,7 @@
+> **This repository is SurvivalOS, an unofficial fork of LILYGO's lilygobox-espidf (v1.1.2)
+> for the T-Display-P4 V1.0.** See [SURVIVALOS.md](./SURVIVALOS.md) for what is different and
+> how to flash it. Everything below is the upstream README, unchanged.
+
 <h1 align="center">lilygobox-espidf</h1>
 
 ## **English | [Chinese](./README_CN.md)**

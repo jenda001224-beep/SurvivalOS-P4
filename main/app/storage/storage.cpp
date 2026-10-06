@@ -16,12 +16,15 @@
 
 #include "app/radio_chat_repository.h"
 #include "app/storage/battery_storage.h"
+#include "app/storage/bluetooth_storage.h"
+#include "app/storage/compass_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
 #include "app/storage/haptic_storage.h"
 #include "app/storage/input_method_storage.h"
 #include "app/storage/keyboard_expansion_storage.h"
 #include "app/storage/littlefs_storage.h"
+#include "app/storage/map_storage.h"
 #include "app/storage/music_storage.h"
 #include "app/storage/otg_storage.h"
 #include "app/storage/power_state_storage.h"
@@ -69,6 +72,9 @@ constexpr StorageBackend kStorageBackends[] = {
     {StageInputMethodStorage, FinishInputMethodStorage},
     {StageKeyboardExpansionStorage, FinishKeyboardExpansionStorage},
     {StageBatteryStorage, FinishBatteryStorage},
+    {StageBluetoothStorage, FinishBluetoothStorage},
+    {StageCompassStorage, FinishCompassStorage},
+    {StageMapStorage, FinishMapStorage},
 };
 constexpr size_t kStorageBackendCount =
     sizeof(kStorageBackends) / sizeof(kStorageBackends[0]);
@@ -449,6 +455,9 @@ void InitStorage(
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Initialize battery storage failed\n");
   }
+  InitBluetoothCache();
+  InitCompassCache();
+  InitMapCache();
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));

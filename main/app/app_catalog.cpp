@@ -11,14 +11,22 @@ namespace lilygo_box::app {
 namespace {
 
 constexpr AppEntry kHomeAppEntries[] = {
-    {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
-    {.id = "radio", .title = "Radio", .subtitle = "Radio module control"},
-    {.id = "music", .title = "Music", .subtitle = "Audio UI placeholder"},
+    {.id = "wikipedia", .title = "Wikipedia",
+        .subtitle = "Offline encyclopaedia"},
+    {.id = "maps", .title = "Maps", .subtitle = "Offline maps and GPS"},
+    {.id = "compass", .title = "Compass", .subtitle = "Magnetic heading"},
+    {.id = "photos", .title = "Photos", .subtitle = "Photo and video library"},
+    {.id = "voicememo", .title = "Voice Memo",
+        .subtitle = "Record and play audio notes"},
     {.id = "files", .title = "Files", .subtitle = "File manager"},
+    {.id = "radio", .title = "Radio", .subtitle = "LoRa module control"},
+    {.id = "classicube", .title = "ClassiCube", .subtitle = "Block sandbox"},
+    {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
 };
 
 constexpr AppEntry kDockAppEntries[] = {
     {.id = "camera", .title = "Camera", .subtitle = "Camera shortcut"},
+    {.id = "music", .title = "Music", .subtitle = "Offline music player"},
     {.id = "settings", .title = "Settings", .subtitle = "System settings"},
 };
 

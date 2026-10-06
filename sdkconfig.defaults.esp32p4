@@ -36,3 +36,21 @@ CONFIG_CAMERA_OV5645_MIPI_RGB565_1280X960_30FPS=y
 CONFIG_CAMERA_OV5645_MIPI_YUV422_1280X960_30FPS=n
 
 CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER=y
+
+# --- SurvivalOS: T-Display-P4 V1.0 has an ESP32-C6 co-processor ---
+CONFIG_ESP_HOSTED_CP_TARGET_ESP32C6=y
+
+# --- SurvivalOS: T-Display-P4 V1.0 carries ESP32-P4 silicon rev v1.x ---
+# ESP-IDF >= 5.5.3 defaults to rev >= 3.x, and such an image is refused by the
+# bootloader on this board. Rev <3 and rev >=3 builds are mutually exclusive.
+# The vendor release images are built the same way (header: min 0.0, max 1.99).
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_0=y
+
+# --- SurvivalOS: never reboot the phone because the Wi-Fi link failed ---
+# ESP-Hosted restarts the whole system when the SDIO link to the ESP32-C6
+# misbehaves. Older V1.0 units ship ESP-AT (no SDIO slave) on the C6, and with
+# Wi-Fi left enabled that turns into a reboot loop; even on good units a restart
+# in the middle of a recording is worse than Wi-Fi staying down until the next
+# power cycle. The failure is still reported as ESP_HOSTED_EVENT_TRANSPORT_FAILURE.
+CONFIG_ESP_HOSTED_TRANSPORT_RESTART_ON_FAILURE=n

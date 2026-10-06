@@ -20,6 +20,7 @@
 #include "lvgl.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/wallpaper.h"
+#include "ui/widgets/control_center.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/status_bar.h"
 #include "ui/widgets/volume_overlay.h"
@@ -110,6 +111,23 @@ class UiManager final {
    * @param callback 由应用层统一处理的亮度调整回调
    */
   void SetScreenBrightnessCallback(std::function<bool(int)> callback);
+
+  /**
+   * @brief Installs the callback that applies and optionally persists volume.
+   * @param callback Receives the percentage and whether to commit it to NVS.
+   */
+  void SetSpeakerVolumeCallback(std::function<bool(int, bool)> callback);
+
+  /**
+   * @brief Reports whether the control center panel is currently open.
+   * @return true when the panel is open.
+   */
+  bool IsControlCenterOpen() const { return control_center_.IsOpen(); }
+
+  /**
+   * @brief Closes the control center panel if it is open.
+   */
+  void HideControlCenter();
 
   /**
    * @brief 同步存储中的亮色或暗色主题偏好
@@ -305,6 +323,42 @@ class UiManager final {
    * @brief 处理全局边缘滑动产生的返回请求
    */
   void HandleEdgeSwipeBackRequest();
+
+  /**
+   * @brief Builds the control center and arms the iOS-style system gestures.
+   * @return true when the shell gesture layer is ready.
+   */
+  bool InitializeShellGestures();
+
+  /**
+   * @brief Tracks the launcher shrink animation to the live home gesture.
+   * @param progress_permille Gesture progress, 0..1000.
+   */
+  void HandleHomeGestureDrag(int progress_permille);
+
+  /**
+   * @brief Applies the outcome of a released home gesture.
+   * @param committed Whether the gesture asked to go home.
+   */
+  void HandleHomeGestureRelease(bool committed);
+
+  /**
+   * @brief Tracks the control center panel to the live pull-down gesture.
+   * @param progress_permille Gesture progress, 0..1000.
+   */
+  void HandleControlCenterDrag(int progress_permille);
+
+  /**
+   * @brief Applies the outcome of a released control center gesture.
+   * @param committed Whether the panel should stay open.
+   */
+  void HandleControlCenterRelease(bool committed);
+
+  /**
+   * @brief Reports whether system gestures may act right now.
+   * @return false while startup, first boot or the lock screen own the display.
+   */
+  bool AreShellGesturesAvailable() const;
 
   /**
    * @brief 处理 launcher 页面滚动事件
@@ -638,6 +692,8 @@ class UiManager final {
   std::function<void(bool visible)> active_view_lock_screen_callback_;
   std::function<void()> screen_lock_callback_;
   std::function<bool(int)> screen_brightness_callback_;
+  std::function<bool(int, bool)> speaker_volume_callback_;
+  ControlCenter control_center_;
   std::function<void(const hal::BatteryManagementStatus&)>
       battery_management_status_callback_;
   std::function<void()> restart_device_callback_;

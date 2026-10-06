@@ -42,6 +42,27 @@ struct AudioFilePlaybackStatus {
   uint32_t duration_ms = 0;
 };
 
+enum class AudioRecordingState {
+  kIdle,
+  kRecording,
+  kCompleted,
+  kError,
+};
+
+struct AudioRecordingStatus {
+  AudioRecordingState state = AudioRecordingState::kIdle;
+  // How long the current or last recording ran.
+  uint32_t elapsed_ms = 0;
+  // Payload bytes written to the WAV file so far.
+  size_t bytes_written = 0;
+  // Live input level in percent, for a recording meter.
+  int level_percent = 0;
+  // Sample format the recording was captured in.
+  uint32_t sample_rate_hz = 0;
+  uint8_t channel_count = 0;
+  uint8_t bits_per_sample = 0;
+};
+
 class AudioProvider {
  public:
   virtual ~AudioProvider() = default;
@@ -150,6 +171,32 @@ class AudioProvider {
    * @return 读取成功返回 true，否则返回 false
    */
   virtual bool ReadMicrophoneStatus(MicrophoneStatus* status) = 0;
+
+  /**
+   * @brief Starts capturing the microphone into a WAV file.
+   * @param path Absolute path of the file to create.
+   * @return true when recording started.
+   */
+  virtual bool StartAudioRecording(const char* path) {
+    (void)path;
+    return false;
+  }
+
+  /**
+   * @brief Stops the current recording and finalises the WAV header.
+   * @return true when the stop request was accepted.
+   */
+  virtual bool StopAudioRecording() { return false; }
+
+  /**
+   * @brief Reads the state of the current or last recording.
+   * @param status Status output.
+   * @return true when the status was filled in.
+   */
+  virtual bool ReadAudioRecordingStatus(AudioRecordingStatus* status) {
+    (void)status;
+    return false;
+  }
 };
 
 }  // namespace lilygo_box::hal

@@ -6,6 +6,8 @@
  * @License: GPL 3.0
  */
 #include "ui/views/camera_view.h"
+#include <sys/stat.h>
+#include <cstring>
 
 #include <algorithm>
 #include <cstddef>
@@ -15,6 +17,9 @@
 #include <new>
 
 #include "base/logger.h"
+#include "ui/haptic_feedback.h"
+#include "hal/providers/storage_provider.h"
+#include "hal/providers/rtc_provider.h"
 #include "esp_heap_caps.h"
 #include "hal/providers/camera_provider.h"
 #include "ui/input/edge_swipe_indicator.h"
@@ -25,6 +30,15 @@
 
 namespace lilygo_box::ui {
 namespace {
+
+// Photos land in the standard DCIM folder so any card reader finds them.
+constexpr const char* kPhotoDirectory = "DCIM";
+constexpr uint32_t kRecordingTimerMs = 200;
+constexpr int kModeButtonSize = 72;
+constexpr int kShutterButtonSize = 116;
+constexpr int kShutterBottomMargin = 64;
+constexpr uint32_t kShutterFlashMs = 180;
+constexpr uint32_t kCaptureToastMs = 1600;
 
 constexpr uint32_t kCameraViewRefreshPeriodMs = 10;
 constexpr int kCameraPromptGroupHeight = 300;
@@ -38,6 +52,18 @@ enum class CameraContentState : uint8_t {
 
 struct CameraViewState {
   hal::CameraProvider* camera = nullptr;
+  hal::StorageProvider* storage = nullptr;
+  hal::RtcProvider* rtc = nullptr;
+  lv_obj_t* shutter_button = nullptr;
+  lv_obj_t* shutter_inner = nullptr;
+  lv_obj_t* shutter_flash = nullptr;
+  lv_obj_t* capture_toast = nullptr;
+  lv_obj_t* mode_button = nullptr;
+  lv_obj_t* mode_label = nullptr;
+  lv_obj_t* recording_label = nullptr;
+  lv_timer_t* recording_timer = nullptr;
+  bool video_mode = false;
+  bool recording = false;
   std::function<void(std::function<void(bool visible)> callback)>
       set_lock_screen_visibility_callback;
   std::function<void(uint32_t color)> set_status_bar_text_color;
@@ -72,6 +98,268 @@ const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
  * @brief 将对象设置为透明无边框容器
  * @param object LVGL 对象
  */
+/**
+ * @brief Builds the path for a new photo from the RTC clock.
+ * @param state Camera view state.
+ * @param buffer Output buffer.
+ * @param size Buffer size.
+ * @return true when a path could be built.
+ */
+bool BuildPhotoPath(CameraViewState* state, char* buffer, size_t size) {
+  if (state->storage == nullptr || !state->storage->IsSdCardMounted()) {
+    return false;
+  }
+  const char* base = state->storage->SdCardBasePath();
+  if (base == nullptr || base[0] == '\0') {
+    return false;
+  }
+  char directory[96] = {};
+  if (std::snprintf(directory, sizeof(directory), "%s/%s", base,
+          kPhotoDirectory) >= static_cast<int>(sizeof(directory))) {
+    return false;
+  }
+  mkdir(directory, 0777);
+
+  hal::RtcStatus status;
+  if (state->rtc != nullptr && state->rtc->ReadRtcStatus(&status) &&
+      status.ready && status.year >= 2000) {
+    return std::snprintf(buffer, size, "%s/IMG_%04d%02d%02d-%02d%02d%02d.jpg",
+               directory, static_cast<int>(status.year),
+               static_cast<int>(status.month), static_cast<int>(status.day),
+               static_cast<int>(status.hour), static_cast<int>(status.minute),
+               static_cast<int>(status.second)) < static_cast<int>(size);
+  }
+  // Without a valid clock fall back to a counter so names stay unique.
+  for (unsigned index = 1; index < 10000; ++index) {
+    if (std::snprintf(buffer, size, "%s/IMG_%04u.jpg", directory, index) >=
+        static_cast<int>(size)) {
+      return false;
+    }
+    struct stat info = {};
+    if (stat(buffer, &info) != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief Fades the white shutter flash back out.
+ * @param object Flash overlay.
+ * @param value Opacity for this animation step.
+ */
+void SetShutterFlashOpacity(void* object, int32_t value) {
+  lv_obj_set_style_bg_opa(static_cast<lv_obj_t*>(object),
+      static_cast<lv_opa_t>(value), LV_PART_MAIN);
+}
+
+/**
+ * @brief Clears the capture toast once it has been read.
+ * @param timer LVGL timer.
+ */
+void HideCaptureToastCallback(lv_timer_t* timer) {
+  auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
+  if (label != nullptr) {
+    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_timer_delete(timer);
+}
+
+/**
+ * @brief Shows a short message over the preview.
+ * @param state Camera view state.
+ * @param text Message to show.
+ */
+void ShowCaptureToast(CameraViewState* state, const char* text) {
+  if (state->capture_toast == nullptr) {
+    return;
+  }
+  lv_label_set_text(state->capture_toast, text);
+  lv_obj_remove_flag(state->capture_toast, LV_OBJ_FLAG_HIDDEN);
+  lv_timer_t* timer = lv_timer_create(
+      HideCaptureToastCallback, kCaptureToastMs, state->capture_toast);
+  if (timer != nullptr) {
+    lv_timer_set_repeat_count(timer, 1);
+  }
+}
+
+/**
+ * @brief Builds the path for a new video from the RTC clock.
+ * @param state Camera view state.
+ * @param buffer Output buffer.
+ * @param size Buffer size.
+ * @return true when a path could be built.
+ */
+bool BuildVideoPath(CameraViewState* state, char* buffer, size_t size) {
+  char photo[160] = {};
+  if (!BuildPhotoPath(state, photo, sizeof(photo))) {
+    return false;
+  }
+  // Same naming as photos, only the extension differs, so the two sort
+  // together in the library.
+  const size_t length = std::strlen(photo);
+  if (length < 4 || length >= size) {
+    return false;
+  }
+  std::snprintf(buffer, size, "%.*s.avi", static_cast<int>(length - 4), photo);
+  // VID_ reads better than IMG_ for a video.
+  char* name = std::strrchr(buffer, '/');
+  if (name != nullptr && std::strncmp(name + 1, "IMG_", 4) == 0) {
+    std::memcpy(name + 1, "VID_", 4);
+  }
+  return true;
+}
+
+/**
+ * @brief Repaints the shutter for the current mode and recording state.
+ * @param state Camera view state.
+ */
+void ApplyShutterState(CameraViewState* state) {
+  if (state->shutter_inner == nullptr) {
+    return;
+  }
+  const bool video = state->video_mode;
+  const int size = state->recording ? 44 : (video ? 84 : kShutterButtonSize - 20);
+  lv_obj_set_size(state->shutter_inner, size, size);
+  lv_obj_set_style_radius(state->shutter_inner,
+      state->recording ? 10 : LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->shutter_inner,
+      lv_color_hex(video ? 0xE5484D : 0xFFFFFF), LV_PART_MAIN);
+  lv_obj_center(state->shutter_inner);
+
+  if (state->mode_label != nullptr) {
+    lv_label_set_text(state->mode_label,
+        video ? icon::kPhotoCamera : icon::kVideocam);
+  }
+  if (state->recording_label != nullptr) {
+    if (state->recording) {
+      lv_obj_remove_flag(state->recording_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->recording_label, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+/**
+ * @brief Keeps the recording time and size on screen.
+ * @param timer LVGL timer.
+ */
+void RecordingTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<CameraViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || state->camera == nullptr) {
+    return;
+  }
+  hal::VideoRecordingStatus status;
+  if (!state->camera->ReadVideoRecordingStatus(&status)) {
+    return;
+  }
+
+  if (state->recording && state->recording_label != nullptr) {
+    const unsigned int seconds = status.elapsed_ms / 1000U;
+    char text[64] = {};
+    std::snprintf(text, sizeof(text), "%s  %u:%02u   %u fps   %llu MB",
+        icon::kFiberManualRecord, seconds / 60U, seconds % 60U,
+        static_cast<unsigned int>(status.frames_per_second),
+        static_cast<unsigned long long>(status.bytes_written / 1000000ULL));
+    lv_label_set_text(state->recording_label, text);
+  }
+
+  // The task stops on its own when the card fills up or the file hits its
+  // limit, so the button has to follow rather than lead.
+  if (state->recording &&
+      status.state != hal::VideoRecordingState::kRecording) {
+    state->recording = false;
+    ApplyShutterState(state);
+    ShowCaptureToast(state,
+        status.state == hal::VideoRecordingState::kError ? "Recording failed"
+                                                         : "Video saved");
+    PlayUiHapticEffect(status.state == hal::VideoRecordingState::kError
+            ? HapticEffect::kWarning
+            : HapticEffect::kSuccess);
+  }
+}
+
+/**
+ * @brief Switches between photo and video.
+ * @param event LVGL event.
+ */
+void ModeClickedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<CameraViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->recording) {
+    return;
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  state->video_mode = !state->video_mode;
+  ApplyShutterState(state);
+  ShowCaptureToast(state, state->video_mode ? "Video" : "Photo");
+}
+
+/**
+ * @brief Captures a photo when the shutter is tapped.
+ * @param event LVGL event.
+ */
+void ShutterClickedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<CameraViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->camera == nullptr) {
+    return;
+  }
+  if (state->content_state != CameraContentState::kPreview) {
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    return;
+  }
+
+  if (state->video_mode) {
+    if (state->recording) {
+      PlayUiHapticEffect(HapticEffect::kImpactMedium);
+      state->camera->StopVideoRecording();
+      return;
+    }
+    char path[160] = {};
+    if (!BuildVideoPath(state, path, sizeof(path))) {
+      PlayUiHapticEffect(HapticEffect::kWarning);
+      ShowCaptureToast(state, "No SD card");
+      return;
+    }
+    if (!state->camera->StartVideoRecording(path)) {
+      PlayUiHapticEffect(HapticEffect::kWarning);
+      ShowCaptureToast(state, "Could not start recording");
+      return;
+    }
+    PlayUiHapticEffect(HapticEffect::kImpactHeavy);
+    state->recording = true;
+    ApplyShutterState(state);
+    return;
+  }
+
+  char path[160] = {};
+  if (!BuildPhotoPath(state, path, sizeof(path))) {
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    ShowCaptureToast(state, "No SD card");
+    return;
+  }
+
+  PlayUiHapticEffect(HapticEffect::kImpactHeavy);
+  if (!state->camera->CaptureCameraPhoto(path)) {
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    ShowCaptureToast(state, "Capture failed");
+    return;
+  }
+
+  // A quick white flash is the whole feedback loop for a camera shutter.
+  if (state->shutter_flash != nullptr) {
+    lv_anim_delete(state->shutter_flash, SetShutterFlashOpacity);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, state->shutter_flash);
+    lv_anim_set_values(&animation, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_duration(&animation, kShutterFlashMs);
+    lv_anim_set_exec_cb(&animation, SetShutterFlashOpacity);
+    lv_anim_start(&animation);
+  }
+  const char* name = std::strrchr(path, '/');
+  ShowCaptureToast(state, name == nullptr ? path : name + 1);
+}
+
 void MakeTransparent(lv_obj_t* object) {
   if (object == nullptr) {
     return;
@@ -440,6 +728,16 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
 
   SetEdgeSwipePassthroughMode(false);
 
+  // A recording task outliving its view would keep writing to a file nobody
+  // is watching, so it is stopped before anything else is torn down.
+  if (state->recording && state->camera != nullptr) {
+    state->camera->StopVideoRecording();
+    state->recording = false;
+  }
+  if (state->recording_timer != nullptr) {
+    lv_timer_delete(state->recording_timer);
+    state->recording_timer = nullptr;
+  }
   if (state->refresh_timer != nullptr) {
     lv_timer_delete(state->refresh_timer);
     state->refresh_timer = nullptr;
@@ -498,6 +796,8 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
     return nullptr;
   }
   state->camera = config.camera;
+  state->storage = config.storage;
+  state->rtc = config.rtc;
   state->container = container;
   state->width = config.width;
   state->height = config.height;
@@ -528,6 +828,112 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_add_flag(state->status_layer, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(state->status_layer, config.width, config.height);
   lv_obj_align(state->status_layer, LV_ALIGN_CENTER, 0, 0);
+
+  // Shutter furniture sits above the preview but below the status layer so a
+  // camera error message still wins the screen.
+  state->shutter_flash = lv_obj_create(container);
+  if (state->shutter_flash != nullptr) {
+    lv_obj_remove_flag(state->shutter_flash, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(state->shutter_flash, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(state->shutter_flash, config.width, config.height);
+    lv_obj_set_pos(state->shutter_flash, 0, 0);
+    lv_obj_set_style_radius(state->shutter_flash, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(state->shutter_flash, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->shutter_flash, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->shutter_flash, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->shutter_flash, LV_OPA_TRANSP, LV_PART_MAIN);
+  }
+
+  state->capture_toast = lv_label_create(container);
+  if (state->capture_toast != nullptr) {
+    lv_obj_add_flag(state->capture_toast, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_color(
+        state->capture_toast, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(
+        state->capture_toast, &lvgl_font_google_sans_flex_24, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->capture_toast, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->capture_toast, 150, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->capture_toast, 12, LV_PART_MAIN);
+    lv_obj_set_style_radius(state->capture_toast, 16, LV_PART_MAIN);
+    lv_obj_align(state->capture_toast, LV_ALIGN_BOTTOM_MID, 0,
+        -kShutterBottomMargin - kShutterButtonSize - 26);
+  }
+
+  state->shutter_button = lv_button_create(container);
+  if (state->shutter_button != nullptr) {
+    lv_obj_set_size(
+        state->shutter_button, kShutterButtonSize, kShutterButtonSize);
+    lv_obj_align(
+        state->shutter_button, LV_ALIGN_BOTTOM_MID, 0, -kShutterBottomMargin);
+    lv_obj_set_style_radius(
+        state->shutter_button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->shutter_button, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->shutter_button, 235, LV_PART_MAIN);
+    lv_obj_set_style_border_width(state->shutter_button, 6, LV_PART_MAIN);
+    lv_obj_set_style_border_color(
+        state->shutter_button, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(state->shutter_button, 120, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->shutter_button, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->shutter_button, 60, LV_PART_MAIN);
+    lv_obj_add_event_cb(state->shutter_button, ShutterClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+
+    state->shutter_inner = lv_obj_create(state->shutter_button);
+    if (state->shutter_inner != nullptr) {
+      lv_obj_remove_flag(state->shutter_inner, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_remove_flag(state->shutter_inner, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_style_border_width(state->shutter_inner, 0, LV_PART_MAIN);
+      lv_obj_set_style_pad_all(state->shutter_inner, 0, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->shutter_inner, LV_OPA_COVER,
+          LV_PART_MAIN);
+    }
+  }
+
+  state->mode_button = lv_button_create(container);
+  if (state->mode_button != nullptr) {
+    lv_obj_set_size(state->mode_button, kModeButtonSize, kModeButtonSize);
+    lv_obj_align(state->mode_button, LV_ALIGN_BOTTOM_RIGHT, -46,
+        -kShutterBottomMargin - 18);
+    lv_obj_set_style_radius(
+        state->mode_button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->mode_button, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->mode_button, 120, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->mode_button, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(state->mode_button, ModeClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+    state->mode_label = lv_label_create(state->mode_button);
+    if (state->mode_label != nullptr) {
+      lv_label_set_text(state->mode_label, icon::kVideocam);
+      lv_obj_set_style_text_color(
+          state->mode_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+      lv_obj_set_style_text_font(state->mode_label,
+          &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
+      lv_obj_center(state->mode_label);
+    }
+  }
+
+  state->recording_label = lv_label_create(container);
+  if (state->recording_label != nullptr) {
+    lv_obj_add_flag(state->recording_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_color(
+        state->recording_label, lv_color_hex(0xFF5A5A), LV_PART_MAIN);
+    lv_obj_set_style_text_font(
+        state->recording_label, &lvgl_font_google_sans_flex_24, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->recording_label, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->recording_label, 140, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->recording_label, 10, LV_PART_MAIN);
+    lv_obj_set_style_radius(state->recording_label, 14, LV_PART_MAIN);
+    lv_obj_align(state->recording_label, LV_ALIGN_TOP_MID, 0, 96);
+  }
+  ApplyShutterState(state);
+
+  state->recording_timer =
+      lv_timer_create(RecordingTimerCallback, kRecordingTimerMs, state);
 
   if (state->set_lock_screen_visibility_callback) {
     state->set_lock_screen_visibility_callback([state](bool visible) {

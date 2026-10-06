@@ -41,13 +41,24 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   }
 
   const auto& acceleration = data.acceleration_g;
-  const float acceleration_magnitude_squared = acceleration.x * acceleration.x +
-                                               acceleration.y * acceleration.y +
-                                               acceleration.z * acceleration.z;
-  const auto& magnetic = data.magnetic_field_ut;
-  const float magnetic_magnitude_squared = magnetic.x * magnetic.x +
-                                           magnetic.y * magnetic.y +
-                                           magnetic.z * magnetic.z;
+  const float acceleration_magnitude_squared =
+      acceleration.x * acceleration.x + acceleration.y * acceleration.y +
+      acceleration.z * acceleration.z;
+  const auto& raw_magnetic = data.magnetic_field_ut;
+  // Hard-iron distortion from the board itself shifts the whole magnetic
+  // sphere; subtracting the calibrated centre is what makes the heading usable.
+  struct {
+    float x;
+    float y;
+    float z;
+  } magnetic = {
+      raw_magnetic.x - magnetometer_offset_x_ut_.load(),
+      raw_magnetic.y - magnetometer_offset_y_ut_.load(),
+      raw_magnetic.z - magnetometer_offset_z_ut_.load(),
+  };
+  const float magnetic_magnitude_squared =
+      magnetic.x * magnetic.x + magnetic.y * magnetic.y +
+      magnetic.z * magnetic.z;
   if (acceleration_magnitude_squared < 0.0001F ||
       magnetic_magnitude_squared < 0.0001F || data.magnetometer_overflow) {
     return false;
@@ -77,6 +88,20 @@ bool TDisplayP4Device::ReadImuStatus(ImuStatus* status) {
   status->pitch_deg = pitch;
   status->yaw_deg = yaw;
   status->roll_deg = roll;
+  status->magnetic_x_ut = raw_magnetic.x;
+  status->magnetic_y_ut = raw_magnetic.y;
+  status->magnetic_z_ut = raw_magnetic.z;
+  status->acceleration_x_g = acceleration.x;
+  status->acceleration_y_g = acceleration.y;
+  status->acceleration_z_g = acceleration.z;
+  return true;
+}
+
+bool TDisplayP4Device::SetMagnetometerCalibration(
+    float offset_x_ut, float offset_y_ut, float offset_z_ut) {
+  magnetometer_offset_x_ut_.store(offset_x_ut);
+  magnetometer_offset_y_ut_.store(offset_y_ut);
+  magnetometer_offset_z_ut_.store(offset_z_ut);
   return true;
 }
 

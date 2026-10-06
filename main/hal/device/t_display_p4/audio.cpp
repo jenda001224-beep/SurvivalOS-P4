@@ -5,14 +5,17 @@
  * @LastEditTime: 2026-09-02 17:52:50
  * @License: GPL 3.0
  */
+#include <strings.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 
 #include "audio/new_notification_010_c2_b16_s44100.h"
+#include "audio/wav_decoder.h"
 #include "base/logger.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -41,6 +44,52 @@ constexpr int kMicrophoneAverageFullScale = 1000;
 constexpr int kMicrophonePeakFullScale = 4000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
+// The codec runs the capture path with the same slot layout as playback, so a
+// recording is written as 16-bit stereo at whatever rate the codec is clocked
+// at. Once the wiring is confirmed on hardware this can drop to mono.
+constexpr uint8_t kRecordingChannelCount = 2;
+constexpr uint8_t kRecordingBitsPerSample = 16;
+constexpr size_t kWavHeaderBytes = 44;
+
+/**
+ * @brief Writes a 44-byte canonical WAV header.
+ * @param file Open file positioned at the start.
+ * @param sample_rate_hz Sample rate in hertz.
+ * @param channel_count Number of interleaved channels.
+ * @param bits_per_sample Bits in one sample.
+ * @param payload_bytes Size of the PCM payload; may be zero for a placeholder.
+ * @return true when the whole header was written.
+ */
+bool WriteWavHeader(FILE* file, uint32_t sample_rate_hz, uint8_t channel_count,
+    uint8_t bits_per_sample, uint32_t payload_bytes) {
+  const uint32_t byte_rate =
+      sample_rate_hz * channel_count * (bits_per_sample / 8);
+  const uint16_t block_align = channel_count * (bits_per_sample / 8);
+  uint8_t header[kWavHeaderBytes] = {};
+  auto put32 = [&header](size_t offset, uint32_t value) {
+    header[offset] = static_cast<uint8_t>(value);
+    header[offset + 1] = static_cast<uint8_t>(value >> 8);
+    header[offset + 2] = static_cast<uint8_t>(value >> 16);
+    header[offset + 3] = static_cast<uint8_t>(value >> 24);
+  };
+  auto put16 = [&header](size_t offset, uint16_t value) {
+    header[offset] = static_cast<uint8_t>(value);
+    header[offset + 1] = static_cast<uint8_t>(value >> 8);
+  };
+  std::memcpy(header, "RIFF", 4);
+  put32(4, payload_bytes + 36);
+  std::memcpy(header + 8, "WAVEfmt ", 8);
+  put32(16, 16);
+  put16(20, 1);
+  put16(22, channel_count);
+  put32(24, sample_rate_hz);
+  put32(28, byte_rate);
+  put16(32, block_align);
+  put16(34, bits_per_sample);
+  std::memcpy(header + 36, "data", 4);
+  put32(40, payload_bytes);
+  return std::fwrite(header, 1, sizeof(header), file) == sizeof(header);
+}
 
 }  // namespace
 
@@ -360,11 +409,17 @@ void TDisplayP4Device::PausedAudioSpeakerToneTaskEntry(void* context) {
 }
 
 void TDisplayP4Device::RunSpeakerPlaybackTask() {
-  if (speaker_.playback_kind.load() == SpeakerState::PlaybackKind::kAudioFile) {
-    const audio::Mp3PlaybackResult result =
-        audio::PlayMp3File(speaker_.audio_file_path, this);
-    const bool completed = result == audio::Mp3PlaybackResult::kCompleted;
-    const bool stopped = result == audio::Mp3PlaybackResult::kStopped;
+  if (speaker_.playback_kind.load() ==
+      SpeakerState::PlaybackKind::kAudioFile) {
+    // Pick the decoder by extension: voice memos are WAV, music is MP3.
+    const size_t path_length = std::strlen(speaker_.audio_file_path);
+    const bool is_wav = path_length >= 4 &&
+        strcasecmp(speaker_.audio_file_path + path_length - 4, ".wav") == 0;
+    const audio::PcmPlaybackResult result = is_wav
+        ? audio::PlayWavFile(speaker_.audio_file_path, this)
+        : audio::PlayMp3File(speaker_.audio_file_path, this);
+    const bool completed = result == audio::PcmPlaybackResult::kCompleted;
+    const bool stopped = result == audio::PcmPlaybackResult::kStopped;
     speaker_.paused.store(false);
     speaker_.stop_requested.store(false);
     speaker_.seek_requested.store(false);
@@ -694,6 +749,35 @@ void TDisplayP4Device::MicrophoneCaptureTaskEntry(void* context) {
 
 void TDisplayP4Device::RunMicrophoneCaptureTask() {
   std::array<int16_t, kMicrophoneReadSampleCount> samples = {};
+  // The capture task is the only owner of the recording file, so no locking is
+  // needed between it and the UI thread.
+  FILE* recording_file = nullptr;
+  size_t recording_payload_bytes = 0;
+  const uint32_t recording_sample_rate = speaker_.sample_rate_hz.load();
+
+  if (microphone_.recording_requested.load()) {
+    recording_file = std::fopen(microphone_.recording_path, "wb");
+    if (recording_file == nullptr ||
+        !WriteWavHeader(recording_file, recording_sample_rate,
+            kRecordingChannelCount, kRecordingBitsPerSample, 0)) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Open recording file failed: %s\n", microphone_.recording_path);
+      if (recording_file != nullptr) {
+        std::fclose(recording_file);
+        recording_file = nullptr;
+      }
+      microphone_.recording_failed.store(true);
+      microphone_.recording_requested.store(false);
+    } else {
+      microphone_.recorded_bytes.store(0);
+      microphone_.recording_failed.store(false);
+      microphone_.recording_sample_rate_hz.store(recording_sample_rate);
+      microphone_.recording_started_ms.store(
+          static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS));
+      microphone_.recording_active.store(true);
+    }
+  }
+
   while (!microphone_.stop_requested.load()) {
     const size_t read_bytes = driver_.chip().es8311->ReadI2s(
         samples.data(), samples.size() * sizeof(samples[0]));
@@ -729,6 +813,24 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
       microphone_.peak_sample.store(peak_sample);
       microphone_.level_percent.store(level_percent);
 
+      if (recording_file != nullptr) {
+        if (std::fwrite(samples.data(), 1, read_bytes, recording_file) !=
+            read_bytes) {
+          LogMessage(LogLevel::kError, __FILE__, __LINE__,
+              "Write recording payload failed\n");
+          microphone_.recording_failed.store(true);
+          microphone_.recording_active.store(false);
+          std::fclose(recording_file);
+          recording_file = nullptr;
+        } else {
+          recording_payload_bytes += read_bytes;
+          microphone_.recorded_bytes.store(recording_payload_bytes);
+          microphone_.recording_elapsed_ms.store(
+              static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+              microphone_.recording_started_ms.load());
+        }
+      }
+
       if (microphone_.adc_to_dac_enabled.load()) {
         const auto* pcm_data = reinterpret_cast<const uint8_t*>(samples.data());
         size_t written_bytes = 0;
@@ -754,12 +856,95 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
     }
   }
 
+  if (recording_file != nullptr) {
+    // Patch the header now that the payload length is known.
+    if (std::fseek(recording_file, 0, SEEK_SET) != 0 ||
+        !WriteWavHeader(recording_file, recording_sample_rate,
+            kRecordingChannelCount, kRecordingBitsPerSample,
+            static_cast<uint32_t>(recording_payload_bytes))) {
+      LogMessage(LogLevel::kError, __FILE__, __LINE__,
+          "Finalise recording header failed\n");
+      microphone_.recording_failed.store(true);
+    }
+    std::fclose(recording_file);
+    recording_file = nullptr;
+  }
+  microphone_.recording_active.store(false);
+  microphone_.recording_requested.store(false);
+
   microphone_.adc_to_dac_enabled.store(false);
   ReleaseAuxiliaryAudioOutput(AuxiliaryAudioOutput::kMicrophoneLoopback);
   microphone_.level_percent.store(0);
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
   UpdateAudioCodecOperatingMode();
+}
+
+bool TDisplayP4Device::StartAudioRecording(const char* path) {
+  if (path == nullptr || path[0] == '\0') {
+    return false;
+  }
+  if (microphone_.running.load() || microphone_.recording_active.load()) {
+    return false;
+  }
+  if (std::strlen(path) >= sizeof(microphone_.recording_path)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Recording path is too long: %s\n", path);
+    return false;
+  }
+
+  // The codec has to be clocked before the capture task reads its rate.
+  if (!Configure(kSpeakerPlaybackSampleRateHz, kRecordingChannelCount,
+          kRecordingBitsPerSample)) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Configure codec for recording failed\n");
+    return false;
+  }
+
+  std::snprintf(microphone_.recording_path,
+      sizeof(microphone_.recording_path), "%s", path);
+  microphone_.recording_failed.store(false);
+  microphone_.recorded_bytes.store(0);
+  microphone_.recording_elapsed_ms.store(0);
+  microphone_.recording_requested.store(true);
+
+  if (!StartMicrophone()) {
+    microphone_.recording_requested.store(false);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StopAudioRecording() {
+  if (!microphone_.recording_active.load() &&
+      !microphone_.recording_requested.load()) {
+    return true;
+  }
+  return StopMicrophone();
+}
+
+bool TDisplayP4Device::ReadAudioRecordingStatus(AudioRecordingStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+
+  *status = AudioRecordingStatus();
+  if (microphone_.recording_failed.load()) {
+    status->state = AudioRecordingState::kError;
+  } else if (microphone_.recording_active.load()) {
+    status->state = AudioRecordingState::kRecording;
+  } else if (microphone_.recorded_bytes.load() > 0) {
+    status->state = AudioRecordingState::kCompleted;
+  } else {
+    status->state = AudioRecordingState::kIdle;
+  }
+  status->elapsed_ms = microphone_.recording_elapsed_ms.load();
+  status->bytes_written = microphone_.recorded_bytes.load();
+  status->level_percent = microphone_.level_percent.load();
+  status->sample_rate_hz = microphone_.recording_sample_rate_hz.load();
+  status->channel_count = kRecordingChannelCount;
+  status->bits_per_sample = kRecordingBitsPerSample;
+  return true;
 }
 
 }  // namespace lilygo_box::hal

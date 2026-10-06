@@ -210,6 +210,26 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadMicrophoneStatus(MicrophoneStatus* status) override;
 
   /**
+   * @brief Starts capturing the microphone into a WAV file.
+   * @param path Absolute path of the file to create.
+   * @return true when recording started.
+   */
+  bool StartAudioRecording(const char* path) override;
+
+  /**
+   * @brief Stops the current recording and finalises the WAV header.
+   * @return true when the stop request was accepted.
+   */
+  bool StopAudioRecording() override;
+
+  /**
+   * @brief Reads the state of the current or last recording.
+   * @param status Status output.
+   * @return true when the status was filled in.
+   */
+  bool ReadAudioRecordingStatus(AudioRecordingStatus* status) override;
+
+  /**
    * @brief 在后台启动摄像头预览并更新内部帧缓冲区
    * @return 启动请求成功提交返回 true，否则返回 false
    */
@@ -248,6 +268,44 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool CopyCameraPreviewFrame(uint8_t* buffer, size_t buffer_size,
       CameraPreviewFrameInfo* info) override;
+
+  /**
+   * @brief Encodes the current preview frame as a JPEG and writes it to a file.
+   * @param path Absolute path of the file to create.
+   * @return true when a photo was written.
+   */
+  bool CaptureCameraPhoto(const char* path) override;
+
+  /**
+   * @brief Starts recording the preview into a Motion JPEG video.
+   * @param path Absolute path of the .avi file to create.
+   * @return true when recording started.
+   */
+  bool StartVideoRecording(const char* path) override;
+
+  /**
+   * @brief Stops the current recording and finalises the file.
+   * @return true when the stop request was accepted.
+   */
+  bool StopVideoRecording() override;
+
+  /**
+   * @brief Reads the state of the current or last recording.
+   * @param status Status output.
+   * @return true when the status was filled in.
+   */
+  bool ReadVideoRecordingStatus(VideoRecordingStatus* status) override;
+
+  /**
+   * @brief Entry point for the background video recording task.
+   * @param context Device instance.
+   */
+  static void VideoRecordingTaskEntry(void* context);
+
+  /**
+   * @brief Encodes preview frames into the open video file until stopped.
+   */
+  void RunVideoRecordingTask();
 
   /**
    * @brief 启用或停用 L76K GPS 数据采集
@@ -463,6 +521,16 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return IMU 已启用且姿态数据读取成功返回 true，否则返回 false
    */
   bool ReadImuStatus(ImuStatus* status) override;
+
+  /**
+   * @brief Sets the hard-iron offsets subtracted from the magnetometer.
+   * @param offset_x_ut Offset on the X axis in microtesla.
+   * @param offset_y_ut Offset on the Y axis in microtesla.
+   * @param offset_z_ut Offset on the Z axis in microtesla.
+   * @return Always true; the offsets are applied in software.
+   */
+  bool SetMagnetometerCalibration(float offset_x_ut, float offset_y_ut,
+      float offset_z_ut) override;
 
   /**
    * @brief 异步启用或停用 IP101 以太网
@@ -1272,6 +1340,17 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<int> peak_sample{0};
     // 累计读取字节数
     std::atomic<size_t> bytes_read{0};
+    // Voice recording: the capture task owns the file handle, the UI thread
+    // only ever flips these flags, which keeps the WAV writing race-free.
+    std::atomic<bool> recording_requested{false};
+    std::atomic<bool> recording_active{false};
+    std::atomic<bool> recording_failed{false};
+    std::atomic<size_t> recorded_bytes{0};
+    std::atomic<uint32_t> recording_started_ms{0};
+    std::atomic<uint32_t> recording_elapsed_ms{0};
+    std::atomic<uint32_t> recording_sample_rate_hz{0};
+    // Path the capture task should open; only written while no recording runs.
+    char recording_path[128] = {};
   };
 
   struct HeapCapsBufferDeleter {
@@ -1617,6 +1696,20 @@ class TDisplayP4Device final : public ScreenProvider,
   MicrophoneState microphone_;
   // 摄像头预览状态，供 UI 和后台预览任务共享
   CameraPreviewState camera_preview_;
+
+  // Video recording state shared between the UI and the encoding task. The
+  // task owns the file; the UI only ever flips these flags.
+  struct VideoRecordingState_ {
+    std::atomic<bool> running{false};
+    std::atomic<bool> stop_requested{false};
+    std::atomic<bool> failed{false};
+    std::atomic<uint32_t> frame_count{0};
+    std::atomic<uint32_t> elapsed_ms{0};
+    std::atomic<uint32_t> measured_fps{0};
+    std::atomic<uint64_t> bytes_written{0};
+    char path[160] = {};
+  };
+  VideoRecordingState_ video_;
   // 以太网运行状态，供事件回调和 UI 查询共享
   EthernetState ethernet_;
   // WiFi 运行状态，供事件回调和 UI 查询共享
@@ -1633,6 +1726,10 @@ class TDisplayP4Device final : public ScreenProvider,
   // 键盘扩展 ST25R3916 的 CIT 轮询状态。
   NfcState nfc_;
   std::atomic<bool> imu_enabled_{false};
+  // Hard-iron offsets in microtesla, subtracted before the heading is solved.
+  std::atomic<float> magnetometer_offset_x_ut_{0.0F};
+  std::atomic<float> magnetometer_offset_y_ut_{0.0F};
+  std::atomic<float> magnetometer_offset_z_ut_{0.0F};
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

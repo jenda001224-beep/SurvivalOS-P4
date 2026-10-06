@@ -92,7 +92,10 @@ constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 constexpr uint32_t kPowerOffChargingScreenMs = 5 * 1000;
 constexpr int kPowerOffChargingBrightnessPercent = 30;
 constexpr char kNvsPartitionName[] = "nvs";
-constexpr char kChinaTimeZone[] = "CST-8";
+// SurvivalOS: upstream hard-codes China Standard Time ("CST-8"). This unit lives
+// in Czechia, so use Central European time with the EU daylight-saving rule.
+// The upstream identifier is kept so later merges stay trivial.
+constexpr char kChinaTimeZone[] = "CET-1CEST,M3.5.0,M10.5.0/3";
 
 /**
  * @brief 判断两个触摸点是否属于同一次双击区域
@@ -607,6 +610,9 @@ bool Application::Init() {
   ui_manager_.SetScreenLockCallback([this]() { RequestScreenLock(); });
   ui_manager_.SetScreenBrightnessCallback(
       [this](int percent) { return ApplyScreenBrightness(percent); });
+  ui_manager_.SetSpeakerVolumeCallback([this](int percent, bool commit) {
+    return ApplySpeakerVolume(percent, commit);
+  });
   ui_manager_.SetBatteryManagementStatusCallback(
       [this](const hal::BatteryManagementStatus& status) {
         HandleBatteryManagementStatusUpdate(status);

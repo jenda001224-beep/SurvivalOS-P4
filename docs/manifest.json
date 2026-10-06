@@ -1,0 +1,25 @@
+{
+  "name": "SurvivalOS",
+  "board": "LILYGO T-Display-P4 V1.0",
+  "version": "1.1.2",
+  "project": "lilygobox-espidf",
+  "built": "Oct  6 2026 10:55:27",
+  "idf": "v5.5.5",
+  "generated": "2026-10-07 01:21",
+  "image": "survivalos-p4.bin",
+  "size": 4671200,
+  "sha256": "ba3dc328fbc09243575471fdfeae84e529f2ce5a6d2dab67ad105fc128970f71",
+  "md5": "ccf08875989c0fa2d643f3cbbb639047",
+  "chip": "ESP32-P4",
+  "chip_id": 18,
+  "min_chip_rev": 0,
+  "max_chip_rev": 199,
+  "flash_size": "16MB",
+  "offsets": {
+    "bootloader": 8192,
+    "partition_table": 32768,
+    "otadata": 61440,
+    "app": 131072
+  },
+  "app_size": 4540128
+}

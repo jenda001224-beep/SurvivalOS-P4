@@ -28,17 +28,20 @@ constexpr size_t kSoundTlvCapacity = 48;
 // 已分配字段编号只允许保留，禁止改号或复用。
 enum class SoundField : uint16_t {
   kVolumePercent = 1,
+  kSilentMode = 2,
 };
 
 SoundPreferences NormalizeSoundPreferences(const SoundPreferences& source) {
   SoundPreferences result;
   result.volume_percent = std::clamp(source.volume_percent, 0, 100);
+  result.silent_mode = source.silent_mode;
   return result;
 }
 
 bool AreSoundPreferencesEqual(
     const SoundPreferences& left, const SoundPreferences& right) {
-  return left.volume_percent == right.volume_percent;
+  return left.volume_percent == right.volume_percent &&
+      left.silent_mode == right.silent_mode;
 }
 
 bool DecodeSoundPreferences(
@@ -59,12 +62,25 @@ bool DecodeSoundPreferences(
     if (result == storage::TlvReadResult::kInvalid) {
       return false;
     }
-    if (static_cast<SoundField>(field.tag()) == SoundField::kVolumePercent) {
-      uint8_t value = 0;
-      if (!field.ReadUint8(&value)) {
-        return false;
+    switch (static_cast<SoundField>(field.tag())) {
+      case SoundField::kVolumePercent: {
+        uint8_t value = 0;
+        if (!field.ReadUint8(&value)) {
+          return false;
+        }
+        decoded.volume_percent = value;
+        break;
       }
-      decoded.volume_percent = value;
+      case SoundField::kSilentMode: {
+        uint8_t value = 0;
+        if (!field.ReadUint8(&value)) {
+          return false;
+        }
+        decoded.silent_mode = value != 0;
+        break;
+      }
+      default:
+        break;
     }
   }
 }
@@ -75,7 +91,9 @@ bool EncodeSoundPreferences(const SoundPreferences& preferences,
   storage::TlvWriter writer(storage::TlvDomain::kSound, output, capacity);
   return writer.WriteUint8(static_cast<uint16_t>(SoundField::kVolumePercent),
              static_cast<uint8_t>(normalized.volume_percent)) &&
-         writer.Finalize(encoded_size);
+      writer.WriteUint8(static_cast<uint16_t>(SoundField::kSilentMode),
+          normalized.silent_mode ? 1 : 0) &&
+      writer.Finalize(encoded_size);
 }
 
 NvsStorageCache<SoundPreferences> g_sound_cache(

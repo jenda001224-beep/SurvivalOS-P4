@@ -13,6 +13,8 @@ namespace lilygo_box::app {
 struct SoundPreferences {
   // 系统输出音量百分比，范围为 0～100。
   int volume_percent = 90;
+  // Silent mode: system sounds stay muted, haptics keep working.
+  bool silent_mode = false;
 };
 
 /**

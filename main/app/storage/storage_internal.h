@@ -29,6 +29,9 @@ enum class StorageDomain : uint8_t {
   kInputMethod,
   kKeyboardExpansion,
   kBattery,
+  kBluetooth,
+  kCompass,
+  kMap,
   kCount,
 };
 
@@ -381,6 +384,45 @@ StorageStageResult StageSoundStorage(nvs_handle_t handle);
  * @param committed 事务是否提交成功
  */
 void FinishSoundStorage(bool committed);
+
+/**
+ * @brief Stages the dirty Bluetooth preference snapshot into the transaction.
+ * @param handle Open shared NVS handle.
+ * @return Clean, staged or failed.
+ */
+StorageStageResult StageBluetoothStorage(nvs_handle_t handle);
+
+/**
+ * @brief Stages the dirty compass calibration snapshot into the transaction.
+ * @param handle Open shared NVS handle.
+ * @return Clean, staged or failed.
+ */
+StorageStageResult StageCompassStorage(nvs_handle_t handle);
+
+/**
+ * @brief Stages the dirty map viewport snapshot into the transaction.
+ * @param handle Open shared NVS handle.
+ * @return Clean, staged or failed.
+ */
+StorageStageResult StageMapStorage(nvs_handle_t handle);
+
+/**
+ * @brief Finishes the map viewport snapshot after the transaction.
+ * @param committed Whether the transaction committed.
+ */
+void FinishMapStorage(bool committed);
+
+/**
+ * @brief Finishes the compass calibration snapshot after the transaction.
+ * @param committed Whether the transaction committed.
+ */
+void FinishCompassStorage(bool committed);
+
+/**
+ * @brief Finishes the Bluetooth preference snapshot after the transaction.
+ * @param committed Whether the transaction committed.
+ */
+void FinishBluetoothStorage(bool committed);
 
 /**
  * @brief 将 WLAN 偏好脏快照暂存到当前 NVS 事务

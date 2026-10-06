@@ -32,6 +32,11 @@ enum class TlvDomain : uint16_t {
   kKeyboardExpansion = 12,
   kInputMethod = 13,
   kBattery = 14,
+  // SurvivalOS domains live at 100+ so upstream can keep allocating low
+  // numbers without colliding with ours.
+  kBluetooth = 100,
+  kCompass = 101,
+  kMap = 102,
 };
 
 enum class TlvReadResult : uint8_t {

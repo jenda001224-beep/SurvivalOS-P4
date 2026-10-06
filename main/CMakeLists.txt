@@ -8,6 +8,7 @@ set(src_dirs
     "hal"
     "hal/ppa"
     "hal/providers"
+    "survival"
     "ui"
     "ui/animation"
     "ui/input"
@@ -36,6 +37,7 @@ idf_component_register(
     SRC_DIRS ${src_dirs}
     INCLUDE_DIRS "."
     REQUIRES
+        zstd
         esp_driver_ppa
         esp_lcd
         esp_timer
@@ -48,6 +50,7 @@ idf_component_register(
         esp_app_format
         esp_common
         esp_audio_codec
+        esp_driver_jpeg
         esp_driver_rmt
         esp_eth
         esp_event

@@ -11,7 +11,7 @@
 
 namespace lilygo_box::app {
 
-static constexpr size_t kMaxAppEntryCount = 8;
+static constexpr size_t kMaxAppEntryCount = 12;
 
 struct AppEntry {
   const char* id = nullptr;

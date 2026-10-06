@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>SurvivalOS — Web Flasher</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #fff; color: #000;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh; display: flex; justify-content: center; padding: 24px;
+  }
+  .card { border: 2px solid #000; border-radius: 12px; padding: 36px 32px; max-width: 620px; width: 100%; height: fit-content; }
+  .logo { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #555; margin-bottom: 6px; }
+  h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+  h2 { font-size: 18px; font-weight: 800; margin-bottom: 10px; }
+  #fw-version {
+    display: inline-block; font-size: 12px; font-weight: 600; background: #f0f0f0;
+    border: 1px solid #ddd; border-radius: 6px; padding: 5px 10px; margin-bottom: 18px;
+  }
+  p, li { color: #333; font-size: 14px; line-height: 1.6; }
+  p { margin-bottom: 14px; }
+  ol, ul { margin: 0 0 16px 20px; }
+  li { margin-bottom: 4px; }
+  code { font-family: "SF Mono", "Fira Code", monospace; font-size: 12.5px; background: #f3f3f3; padding: 1px 5px; border-radius: 4px; }
+  .warn { border: 1.5px solid #000; border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-bottom: 18px; }
+  #no-serial-warn { display: none; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 10px; }
+  .opt input { margin-top: 3px; }
+  button.primary {
+    width: 100%; padding: 18px; background: #000; color: #fff; border: none; border-radius: 8px;
+    font-size: 17px; font-weight: 700; cursor: pointer; margin: 8px 0 18px;
+  }
+  button.primary:hover:not(:disabled) { opacity: 0.75; }
+  button:disabled { opacity: 0.25; cursor: not-allowed; }
+  button.secondary {
+    padding: 13px 16px; background: #fff; color: #000; border: 2px solid #000; border-radius: 8px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  button.secondary:hover:not(:disabled) { opacity: 0.6; }
+  button.secondary.active { background: #000; color: #fff; }
+  #progress-wrap { display: none; margin-bottom: 18px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #555; margin-bottom: 8px; font-weight: 500; }
+  .progress-bar-bg { background: #e0e0e0; border-radius: 999px; height: 6px; overflow: hidden; }
+  #progress-bar { height: 100%; background: #000; border-radius: 999px; width: 0%; transition: width 0.2s; }
+  .logbox {
+    border: 1.5px solid #e0e0e0; border-radius: 8px; padding: 12px 14px;
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; line-height: 1.7;
+    max-height: 260px; overflow-y: auto; min-height: 52px; background: #fafafa; color: #333;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  #log .ok { color: #000; font-weight: 700; }
+  #log .err { color: #000; font-weight: 700; text-decoration: underline; }
+  #log .info { color: #555; }
+  #serlog { background: #0b0b0b; color: #d6d6d6; max-height: 340px; min-height: 90px; border-color: #0b0b0b; }
+  #serlog .note { color: #7CFC7C; }
+  #serlog .bad { color: #ff7b7b; }
+  .divider { border-top: 1px solid #e0e0e0; margin: 26px 0 22px; }
+  .row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .row > button { flex: 1; }
+  details { margin-bottom: 12px; }
+  summary { cursor: pointer; font-size: 14px; font-weight: 700; padding: 6px 0; }
+  details > div { padding: 6px 0 2px; }
+  .footer { margin-top: 22px; font-size: 11px; color: #999; text-align: center; line-height: 1.6; }
+  .footer a { color: #999; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">LILYGO T-Display-P4 · V1.0</div>
+  <h1>SurvivalOS Flasher</h1>
+  <div id="fw-version">loading firmware info…</div>
+
+  <div id="no-serial-warn" class="warn">
+    This browser has no Web Serial support. Open this page in
+    <strong>Chrome</strong> or <strong>Edge</strong> on a computer (not Safari, not a phone).
+  </div>
+
+  <div class="warn">
+    <strong>Early build.</strong> This firmware compiles and the flasher passes its
+    simulated tests, but it has not yet been confirmed on a real device. Flashing
+    is reversible — see “Go back to the LILYGO factory firmware” below.
+    Only for the <strong>T-Display-P4 V1.0</strong> (ESP32-P4 revision 1.x).
+  </div>
+
+  <h2>Before you click</h2>
+  <ol>
+    <li>Use the USB-C port on the <strong>side</strong> of the device, labelled
+        <strong>P4.U</strong>. The other USB-C port only charges and cannot flash.</li>
+    <li>Use a data cable (not charge-only). The device should be switched on.</li>
+    <li>Close any other program that has the serial port open.</li>
+    <li>Click <strong>Flash</strong> and pick the port named
+        <strong>USB Single Serial</strong> / <code>usbmodem…</code> (WCH CH343).</li>
+  </ol>
+
+  <label class="opt">
+    <input type="checkbox" id="opt-clean" checked>
+    <span><strong>Clean install</strong> — also reset the device settings.
+      Recommended the first time you move from the LILYGO firmware. Untick it for
+      later updates to keep your settings. The SD card is never touched.</span>
+  </label>
+  <label class="opt">
+    <input type="checkbox" id="opt-allports">
+    <span>Show every serial port in the picker (only if the device is not listed).</span>
+  </label>
+
+  <button id="flash-btn" class="primary" disabled>Flash SurvivalOS</button>
+
+  <div id="progress-wrap">
+    <div class="progress-label"><span id="progress-text">Preparing…</span><span id="progress-pct">0%</span></div>
+    <div class="progress-bar-bg"><div id="progress-bar"></div></div>
+  </div>
+  <div id="log" class="logbox"><span class="info">Loading…</span></div>
+
+  <div class="divider"></div>
+
+  <h2>If something goes wrong</h2>
+  <details>
+    <summary>The flasher cannot connect</summary>
+    <div>
+      <p>Put the board into download mode by hand: <strong>hold BOOT, press and
+      release RST, then release BOOT</strong>. The screen stays black. Click Flash again.</p>
+      <p>If the port is not in the picker at all, tick “Show every serial port”,
+      try another cable, and make sure it is the <strong>P4.U</strong> port.</p>
+    </div>
+  </details>
+  <details>
+    <summary>The screen stays black after flashing</summary>
+    <div>
+      <p>This board can stay in download mode after a reset. Do a full power
+      cycle: unplug USB, switch the battery <strong>off</strong>, wait five
+      seconds, switch it on again and press the power/RST button.</p>
+      <p>A nearly empty battery also makes the firmware show a warning and
+      switch off again — charge it for a while and retry.</p>
+      <p>Still black? Connect the serial monitor below, press RST, and read what it prints.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Go back to the LILYGO factory firmware</summary>
+    <div>
+      <p>Download the file ending in <code>-merged.bin</code> for
+      <code>t-display-p4-device-v1.0-esp32p4-rev1.0</code> from the
+      <a href="https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases" target="_blank" rel="noopener">LILYGO releases page</a>,
+      choose it here and flash it. It is checked the same way before anything is written.</p>
+      <div class="row">
+        <input type="file" id="custom-file" accept=".bin" style="flex:1; font-size:13px; padding-top:12px;">
+        <button id="custom-btn" class="secondary" disabled>Flash this file</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="divider"></div>
+
+  <h2>Serial monitor</h2>
+  <p>Shows what the device prints (115200 baud). Connecting restarts the device
+     so the whole boot log is captured.</p>
+  <div class="row">
+    <button id="mon-btn" class="secondary">Connect</button>
+    <button id="mon-reset" class="secondary" disabled>Restart device</button>
+    <button id="mon-copy" class="secondary">Copy log</button>
+    <button id="mon-clear" class="secondary">Clear</button>
+  </div>
+  <div id="serlog" class="logbox">Serial monitor idle.</div>
+
+  <div class="footer">
+    SurvivalOS is an unofficial fork of LILYGO's
+    <a href="https://github.com/Xinyuan-LilyGO/lilygobox-espidf" target="_blank" rel="noopener">lilygobox-espidf</a>,
+    licensed GPL-3.0. Not affiliated with LILYGO.<br>
+    <a href="https://github.com/jenda001224-beep/SurvivalOS-P4" target="_blank" rel="noopener">Source code of this exact firmware</a>
+    · esptool-js 0.6.0 (Apache-2.0), vendored.
+  </div>
+</div>
+
+<script type="module">
+// esptool-js is vendored so flashing never depends on a CDN. The exact version
+// matters for this chip — see vendor/README.md before changing it.
+import { ESPLoader, Transport } from "./vendor/esptool-js-0.6.0.bundle.js";
+
+const MANIFEST_URL = "manifest.json";
+
+// Flash layout of the merged image (ESP32-P4: bootloader lives at 0x2000).
+const BOOTLOADER_OFFSET = 0x2000;
+const SETTINGS_START    = 0x9000;    // nvs
+const OTADATA_OFFSET    = 0xF000;
+const OTADATA_END       = 0x11000;
+const APP_OFFSET        = 0x20000;
+const ESP32P4_CHIP_ID   = 18;
+// T-Display-P4 V1.0 carries ESP32-P4 rev v1.0 / v1.3. Rev >= 3.00 silicon needs
+// a different, mutually exclusive build and would refuse to boot this one.
+const FIRST_UNSUPPORTED_REV = 300;
+
+// The CH343P on this board drives the chip directly: RTS -> EN, DTR -> GPIO35
+// (boot strap), with no cross-coupled transistors. Two consequences:
+//  * while RTS is asserted the chip is simply held in reset;
+//  * esptool-js changes baud rate by closing and reopening the port, and an OS
+//    that asserts RTS on open resets the chip in the middle of the session.
+// So the fast attempt may fail by design, and the 115200 attempt — which never
+// reopens the port — is the one that must always work.
+const ATTEMPTS = [
+  { baud: 460800, block: 0x4000, label: "fast" },
+  { baud: 115200, block: 0x1000, label: "safe" },
+];
+const ROM_BAUD = 115200;
+const WCH_VENDOR_ID = 0x1A86;        // CH343P
+
+const $ = (id) => document.getElementById(id);
+const flashBtn = $("flash-btn"), customBtn = $("custom-btn"), customFile = $("custom-file");
+const logBox = $("log"), progressWrap = $("progress-wrap"), progressBar = $("progress-bar");
+const progressText = $("progress-text"), progressPct = $("progress-pct");
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const hex = (n) => "0x" + n.toString(16);
+
+let official = null;      // { manifest, bytes } once downloaded and verified
+let busy = false;
+
+function addLog(message, cls = "") {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = message;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+function clearLog() { logBox.textContent = ""; }
+function setProgress(percent, label) {
+  progressBar.style.width = percent + "%";
+  progressPct.textContent = Math.round(percent) + "%";
+  progressText.textContent = label;
+}
+function setBusy(value) {
+  busy = value;
+  flashBtn.disabled = value || !official;
+  customBtn.disabled = value || !customFile.files.length;
+  $("mon-btn").disabled = value;
+}
+
+// Narrow the picker to the board's CH343P unless asked not to, so the wrong
+// port (Bluetooth, another dev board) is not one click away.
+function portRequestOptions() {
+  return $("opt-allports").checked ? {} : { filters: [{ usbVendorId: WCH_VENDOR_ID }] };
+}
+
+// ─── Image checks ────────────────────────────────────────────────────────────
+
+function readImageHeader(bytes, offset) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 24);
+  return {
+    magic: view.getUint8(0),
+    flashSizeCode: view.getUint8(3) >> 4,
+    chipId: view.getUint16(12, true),
+    minRev: view.getUint16(15, true),
+    maxRev: view.getUint16(17, true),
+  };
+}
+
+// Refuses anything that is not a full ESP32-P4 image for rev <3 silicon. The
+// device itself would not stop us: esptool-js writes whatever it is given, and
+// a rev >=3 build "flashes fine" and then never boots on this board.
+function checkMergedImage(bytes, name) {
+  if (bytes.length < APP_OFFSET + 0x10000) {
+    throw new Error(`${name} is only ${bytes.length} bytes — not a full merged image.`);
+  }
+  if (bytes.length > 16 * 1024 * 1024) {
+    throw new Error(`${name} is larger than the 16 MB flash.`);
+  }
+  for (const [what, offset] of [["bootloader", BOOTLOADER_OFFSET], ["app", APP_OFFSET]]) {
+    const header = readImageHeader(bytes, offset);
+    if (header.magic !== 0xE9) {
+      throw new Error(`${name}: no ${what} image at ${hex(offset)}. ` +
+                      `This must be a merged image meant to be written at 0x0.`);
+    }
+    if (header.chipId !== ESP32P4_CHIP_ID) {
+      throw new Error(`${name}: the ${what} is built for chip id ${header.chipId}, not ESP32-P4.`);
+    }
+    if (header.maxRev >= FIRST_UNSUPPORTED_REV || header.minRev > 100) {
+      throw new Error(`${name}: the ${what} targets chip revisions ` +
+                      `${(header.minRev / 100).toFixed(2)}–${(header.maxRev / 100).toFixed(2)}, ` +
+                      `but this board has revision 1.x.`);
+    }
+  }
+  if (readImageHeader(bytes, BOOTLOADER_OFFSET).flashSizeCode !== 4) {
+    throw new Error(`${name}: the bootloader is not configured for 16 MB flash.`);
+  }
+  if (bytes[0x8000] !== 0xAA || bytes[0x8001] !== 0x50) {
+    throw new Error(`${name}: no partition table at 0x8000.`);
+  }
+  for (let i = 0; i < BOOTLOADER_OFFSET; i++) {
+    if (bytes[i] !== 0xFF) throw new Error(`${name}: unexpected data below ${hex(BOOTLOADER_OFFSET)}.`);
+  }
+}
+
+async function sha256Hex(bytes) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// MD5 is what the ROM/stub loader offers for reading back a hash of the flash,
+// so it is what the write is verified with.
+function md5(bytes) {
+  const S = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+             5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+             4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+             6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+  const K = new Uint32Array(64);
+  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
+  const len = bytes.length;
+  const padded = new Uint8Array((((len + 8) >> 6) + 1) << 6);
+  padded.set(bytes);
+  padded[len] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, (len * 8) >>> 0, true);
+  view.setUint32(padded.length - 4, Math.floor((len * 8) / 4294967296), true);
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  const M = new Uint32Array(16);
+  const rotl = (x, c) => (x << c) | (x >>> (32 - c));
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) M[i] = view.getUint32(off + i * 4, true);
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16)      { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) & 15; }
+      else if (i < 48) { F = B ^ C ^ D;          g = (3 * i + 5) & 15; }
+      else             { F = C ^ (B | ~D);       g = (7 * i) & 15; }
+      F = (F + A + K[i] + M[g]) >>> 0;
+      A = D; D = C; C = B;
+      B = (B + rotl(F, S[i])) >>> 0;
+    }
+    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+  }
+  const word = (n) => {
+    let out = "";
+    for (let i = 0; i < 4; i++) out += ((n >>> (i * 8)) & 0xff).toString(16).padStart(2, "0");
+    return out;
+  };
+  return word(a0) + word(b0) + word(c0) + word(d0);
+}
+
+// What actually gets written. A clean install is the whole image at 0x0, the
+// same thing LILYGO's own instructions do. Keeping settings means skipping the
+// two NVS partitions (0x9000–0xEFFF and 0x12000–0x1FFFF); otadata is rewritten
+// either way so the bootloader starts the app we just wrote, not a stale one
+// in the second OTA slot.
+function planWrite(bytes, clean) {
+  if (clean) return [{ data: bytes, address: 0 }];
+  return [
+    { data: bytes.slice(BOOTLOADER_OFFSET, SETTINGS_START), address: BOOTLOADER_OFFSET },
+    { data: bytes.slice(OTADATA_OFFSET, OTADATA_END),       address: OTADATA_OFFSET },
+    { data: bytes.slice(APP_OFFSET),                        address: APP_OFFSET },
+  ];
+}
+
+// ─── Flashing ────────────────────────────────────────────────────────────────
+
+// Normal-boot reset for this board: release the boot strap first, then pulse EN.
+async function resetIntoFirmware(transport) {
+  await transport.setDTR(false);   // GPIO35 high -> boot from flash
+  await transport.setRTS(true);    // EN low
+  await sleep(150);
+  await transport.setRTS(false);   // EN high
+}
+
+async function flashOnce(port, fileArray, attempt, totalBytes) {
+  const transport = new Transport(port, false);
+  const esploader = new ESPLoader({
+    transport,
+    baudrate: attempt.baud,
+    romBaudrate: ROM_BAUD,
+    terminal: {
+      clean() {},
+      writeLine(text) { addLog(text, "info"); },
+      write(text) { addLog(text, "info"); },
+    },
+  });
+  let wroteAnything = false;
+  try {
+    addLog(`Connecting (${attempt.label} mode, ${attempt.baud} baud)…`);
+    await esploader.main();
+
+    const chipName = esploader.chip.CHIP_NAME;
+    if (chipName !== "ESP32-P4") {
+      const error = new Error(`This is a ${chipName}, not an ESP32-P4 — wrong port or wrong device. Nothing was written.`);
+      error.fatal = true;
+      throw error;
+    }
+    const revision = await esploader.chip.getChipRevision(esploader);
+    addLog(`Chip: ESP32-P4 revision v${Math.floor(revision / 100)}.${revision % 100}`, "ok");
+    if (revision >= FIRST_UNSUPPORTED_REV) {
+      const error = new Error(`This chip is revision v${Math.floor(revision / 100)}.${revision % 100}. ` +
+        `This firmware is built for revision 1.x (T-Display-P4 V1.0) and would not boot. Nothing was written.`);
+      error.fatal = true;
+      throw error;
+    }
+
+    esploader.FLASH_WRITE_SIZE = attempt.block;
+    const done = new Array(fileArray.length).fill(0);
+    const sizes = new Array(fileArray.length).fill(0);
+    wroteAnything = true;
+    await esploader.writeFlash({
+      fileArray,
+      // The image already carries the right header (16 MB, DIO, 40 MHz).
+      flashSize: "keep", flashMode: "keep", flashFreq: "keep",
+      eraseAll: false,
+      compress: true,     // esptool-js 0.6.0 has no uncompressed write path
+      // Make the device hash what it stored; a mismatch fails the flash.
+      calculateMD5Hash: (image) => md5(image instanceof Uint8Array ? image : new Uint8Array(image)),
+      reportProgress(index, written, total) {
+        done[index] = written; sizes[index] = total;
+        // `total` is the compressed size of one part, known only once it
+        // starts; weigh the parts by their raw size to keep the bar monotonic.
+        let fraction = 0;
+        for (let i = 0; i < fileArray.length; i++) {
+          const share = fileArray[i].data.length / totalBytes;
+          fraction += share * (sizes[i] ? done[i] / sizes[i] : 0);
+        }
+        setProgress(5 + fraction * 90, "Writing firmware…");
+      },
+    });
+    setProgress(98, "Verified. Restarting…");
+    addLog("Firmware written and verified (MD5 read back from the device).", "ok");
+
+    try {
+      await resetIntoFirmware(transport);
+      addLog("Device restarted.", "ok");
+    } catch (error) {
+      addLog("Could not restart the device automatically — press RST.", "info");
+    }
+  } catch (error) {
+    error.wroteAnything = wroteAnything;
+    throw error;
+  } finally {
+    try { await transport.disconnect(); } catch (error) {}
+    try { await port.close(); } catch (error) {}
+  }
+}
+
+async function runFlash(bytes, name, clean) {
+  if (busy) return;
+  setBusy(true);
+  clearLog();
+  progressWrap.style.display = "block";
+  setProgress(0, "Checking image…");
+  try {
+    checkMergedImage(bytes, name);
+    const fileArray = planWrite(bytes, clean);
+    const totalBytes = fileArray.reduce((sum, part) => sum + part.data.length, 0);
+    addLog(`${name}: ${bytes.length} bytes, image checks passed.`, "ok");
+    addLog(clean ? "Clean install: writing the whole image at 0x0."
+                 : "Keeping settings: writing bootloader, partition table, otadata and app.", "info");
+
+    let port;
+    try {
+      port = await navigator.serial.requestPort(portRequestOptions());
+    } catch (error) {
+      addLog("No port selected — nothing was written.", "info");
+      setProgress(0, "Cancelled.");
+      return;
+    }
+
+    let lastError = null;
+    for (let i = 0; i < ATTEMPTS.length; i++) {
+      try {
+        setProgress(3, "Connecting…");
+        await flashOnce(port, fileArray, ATTEMPTS[i], totalBytes);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (error.fatal) break;
+        addLog(`${ATTEMPTS[i].label} mode did not work: ${error.message}`, "info");
+        if (i + 1 < ATTEMPTS.length) {
+          addLog(`That is expected on some computers with this board. Retrying in ` +
+                 `${ATTEMPTS[i + 1].label} mode — slower (about 5 minutes), but it does not reopen the port.`, "info");
+          await sleep(1200);
+        }
+      }
+    }
+    if (lastError) throw lastError;
+
+    setProgress(100, "Done");
+    addLog("Done. SurvivalOS is starting — the first boot takes a few seconds.", "ok");
+    addLog("If the screen stays black, see “The screen stays black after flashing” below.", "info");
+  } catch (error) {
+    addLog("Error: " + error.message, "err");
+    if (error.wroteAnything) {
+      addLog("The write was interrupted, so the device may not boot until it is flashed again. " +
+             "That is harmless: hold BOOT, tap RST, release BOOT, and click Flash once more.", "info");
+    } else if (!error.fatal) {
+      addLog("Nothing was written. If the device was not detected: hold BOOT, tap RST, " +
+             "release BOOT, then click Flash again.", "info");
+    }
+    setProgress(0, "Failed");
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ─── Start-up: fetch and verify the firmware before offering to flash it ─────
+
+async function loadOfficial() {
+  clearLog();
+  if (!("serial" in navigator)) {
+    $("no-serial-warn").style.display = "block";
+    addLog("Web Serial is not available in this browser.", "err");
+    $("mon-btn").disabled = true;
+    return;
+  }
+  try {
+    const stamp = "?cb=" + Date.now();   // never flash a stale cached build
+    const manifestResponse = await fetch(MANIFEST_URL + stamp, { cache: "no-store" });
+    if (!manifestResponse.ok) throw new Error(`manifest.json: HTTP ${manifestResponse.status}`);
+    const manifest = await manifestResponse.json();
+    $("fw-version").textContent =
+      `${manifest.name} ${manifest.version} · built ${manifest.built} · ${(manifest.size / 1048576).toFixed(1)} MB`;
+
+    addLog(`Downloading ${manifest.image}…`, "info");
+    const response = await fetch(manifest.image + stamp, { cache: "no-store" });
+    if (!response.ok) throw new Error(`${manifest.image}: HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length !== manifest.size) {
+      throw new Error(`${manifest.image} is ${bytes.length} bytes, expected ${manifest.size} — truncated download. Reload.`);
+    }
+    const digest = await sha256Hex(bytes);
+    if (digest !== manifest.sha256) {
+      throw new Error(`${manifest.image} does not match its SHA-256 — corrupted download. Reload.`);
+    }
+    checkMergedImage(bytes, manifest.image);
+    official = { manifest, bytes };
+    addLog(`Firmware ready: ${bytes.length} bytes, SHA-256 and image checks passed.`, "ok");
+    addLog("Plug the device into the P4.U port and click Flash.", "info");
+  } catch (error) {
+    addLog("Could not load the firmware: " + error.message, "err");
+  }
+  setBusy(false);
+}
+
+flashBtn.addEventListener("click", () => {
+  if (official) runFlash(official.bytes, official.manifest.image, $("opt-clean").checked);
+});
+customFile.addEventListener("change", () => { customBtn.disabled = busy || !customFile.files.length; });
+customBtn.addEventListener("click", async () => {
+  const file = customFile.files[0];
+  if (!file) return;
+  // A factory image is always written whole: it is a different firmware, so
+  // its settings should start from scratch too.
+  runFlash(new Uint8Array(await file.arrayBuffer()), file.name, true);
+});
+
+// ─── Serial monitor ──────────────────────────────────────────────────────────
+const monBtn = $("mon-btn"), monReset = $("mon-reset"), serlog = $("serlog");
+let monPort = null, monReader = null, monRunning = false;
+
+function serLog(text, cls = "") {
+  const atBottom = serlog.scrollTop + serlog.clientHeight >= serlog.scrollHeight - 4;
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text;
+  serlog.appendChild(span);
+  if (atBottom) serlog.scrollTop = serlog.scrollHeight;
+}
+
+// Opening the port can leave RTS asserted, which on this board holds the chip
+// in reset — the device would look dead for as long as the monitor is open.
+// Release the boot strap, then EN, in that order, so it always boots normally.
+async function restartViaSignals(port) {
+  await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+  await sleep(150);
+  await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+}
+
+async function startMonitor() {
+  try {
+    monPort = await navigator.serial.requestPort(portRequestOptions());
+  } catch (error) { return; }
+  try {
+    await monPort.open({ baudRate: 115200 });
+  } catch (error) {
+    serLog(`\nCould not open the port: ${error.message}\n`, "bad");
+    monPort = null;
+    return;
+  }
+  monRunning = true;
+  monBtn.textContent = "Disconnect";
+  monBtn.classList.add("active");
+  monReset.disabled = false;
+  flashBtn.disabled = true; customBtn.disabled = true;
+  serlog.textContent = "";
+  serLog("── connected at 115200 — restarting the device ──\n", "note");
+  try { await restartViaSignals(monPort); }
+  catch (error) { serLog(`(could not drive the reset lines: ${error.message})\n`, "bad"); }
+
+  const decoder = new TextDecoder();
+  try {
+    while (monRunning && monPort.readable) {
+      monReader = monPort.readable.getReader();
+      try {
+        while (monRunning) {
+          const { value, done } = await monReader.read();
+          if (done) break;
+          if (value) serLog(decoder.decode(value, { stream: true }));
+        }
+      } catch (error) {
+        // A framing or overrun error ends this reader; the outer loop gets a new one.
+      } finally {
+        try { monReader.releaseLock(); } catch (error) {}
+        monReader = null;
+      }
+    }
+  } finally {
+    try { await monPort.close(); } catch (error) {}
+    monPort = null;
+    monRunning = false;
+    monBtn.textContent = "Connect";
+    monBtn.classList.remove("active");
+    monReset.disabled = true;
+    serLog("\n── disconnected ──\n", "note");
+    setBusy(false);
+  }
+}
+
+async function stopMonitor() {
+  monRunning = false;
+  try { if (monReader) await monReader.cancel(); } catch (error) {}
+}
+
+monBtn.addEventListener("click", () => { if (monRunning) stopMonitor(); else startMonitor(); });
+monReset.addEventListener("click", async () => {
+  if (!monPort) return;
+  serLog("\n── restarting the device ──\n", "note");
+  try { await restartViaSignals(monPort); } catch (error) { serLog(`(${error.message})\n`, "bad"); }
+});
+$("mon-clear").addEventListener("click", () => { serlog.textContent = ""; });
+$("mon-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(serlog.textContent); serLog("\n── log copied ──\n", "note"); }
+  catch (error) { serLog("\n(could not copy — select the text by hand)\n", "bad"); }
+});
+
+// Exposed for the self-test in tools/test_flasher.mjs.
+window.__flasher = { md5, checkMergedImage, planWrite, readImageHeader };
+
+loadOfficial();
+</script>
+</body>
+</html>

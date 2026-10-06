@@ -14,13 +14,21 @@
 #include <utility>
 
 #include "app/app_catalog.h"
+#include "base/logger.h"
 #include "app/network_monitor.h"
+#include "app/storage/bluetooth_storage.h"
+#include "app/storage/display_storage.h"
 #include "app/storage/input_method_storage.h"
+#include "app/storage/sound_storage.h"
+#include "app/storage/wifi_storage.h"
+#include "hal/providers/audio_provider.h"
+#include "hal/providers/wifi_provider.h"
 #include "hal/providers/keyboard_expansion_provider.h"
 #include "ui/app_view_factory.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/edge_swipe_indicator.h"
 #include "ui/input/press_cancel.h"
+#include "ui/input/system_gestures.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/resources/images/image_assets.h"
@@ -819,6 +827,80 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  // Apps added by SurvivalOS use Material Symbols glyphs instead of bespoke
+  // artwork, so a new app only costs a catalog entry and a colour pair.
+  if (IsId(app_entry.id, "wikipedia")) {
+    return {
+        .symbol = icon::kMenuBook,
+        .image = nullptr,
+        .shell_color = 0x3C4653,
+        .surface_color = 0x9AA7B6,
+        .pressed_shell_color = 0x2E3642,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "maps")) {
+    return {
+        .symbol = icon::kMap,
+        .image = nullptr,
+        .shell_color = 0x2E7D5B,
+        .surface_color = 0x8FD6B4,
+        .pressed_shell_color = 0x246348,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "compass")) {
+    return {
+        .symbol = icon::kExplore,
+        .image = nullptr,
+        .shell_color = 0xB03A2E,
+        .surface_color = 0xF0A79C,
+        .pressed_shell_color = 0x8E2E25,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "photos")) {
+    return {
+        .symbol = icon::kPhotoLibrary,
+        .image = nullptr,
+        .shell_color = 0x2F6FB0,
+        .surface_color = 0xA5CBEC,
+        .pressed_shell_color = 0x25588C,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "voicememo")) {
+    return {
+        .symbol = icon::kMic,
+        .image = nullptr,
+        .shell_color = 0x6B4E9B,
+        .surface_color = 0xC0AEE6,
+        .pressed_shell_color = 0x553E7C,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "classicube")) {
+    return {
+        .symbol = icon::kVideogameAsset,
+        .image = nullptr,
+        .shell_color = 0x5B8C3A,
+        .surface_color = 0xB5DC93,
+        .pressed_shell_color = 0x49702E,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   return {
       .symbol = icon::kHome,
       .image = nullptr,
@@ -933,6 +1015,11 @@ bool UiManager::Init(hal::ScreenProvider* screen, hal::LvglPort* lvgl_port,
     return false;
   }
   status_bar_.MoveToTop();
+
+  if (!InitializeShellGestures()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize shell gestures failed\n");
+  }
 
   system_status_refresh_timer_ = lv_timer_create(
       SystemStatusRefreshTimerCallback, kSystemStatusRefreshPeriodMs, this);
@@ -1485,6 +1572,205 @@ void UiManager::HandleEdgeSwipeBackRequest() {
   }
 }
 
+namespace {
+
+// How far the foreground view is nudged while the home gesture is dragged.
+// Kept small on purpose: every pixel of movement repaints the full screen, and
+// the parallax only has to hint that the view is leaving.
+constexpr int kHomeGestureParallaxPixels = 72;
+constexpr lv_opa_t kHomeGestureMinimumOpacity = 140;
+constexpr int kGestureProgressFull = 1000;
+
+}  // namespace
+
+void UiManager::SetSpeakerVolumeCallback(
+    std::function<bool(int, bool)> callback) {
+  speaker_volume_callback_ = std::move(callback);
+}
+
+void UiManager::HideControlCenter() { control_center_.Close(); }
+
+bool UiManager::AreShellGesturesAvailable() const {
+  return startup_screen_ == nullptr && startup_background_ == nullptr &&
+      first_boot_welcome_screen_ == nullptr && lock_screen_ == nullptr;
+}
+
+bool UiManager::InitializeShellGestures() {
+  ControlCenterConfig config;
+  config.get_brightness_percent = [] {
+    return app::GetDisplayPreferences().brightness_percent;
+  };
+  config.set_brightness_percent = [this](int percent) {
+    return screen_brightness_callback_ ? screen_brightness_callback_(percent)
+                                       : false;
+  };
+  config.get_volume_percent = [] {
+    return app::GetSoundPreferences().volume_percent;
+  };
+  config.set_volume_percent = [this](int percent) {
+    if (!speaker_volume_callback_) {
+      return false;
+    }
+    // Touching the slider is an explicit request for sound, so it also leaves
+    // silent mode behind.
+    app::SoundPreferences preferences = app::GetSoundPreferences();
+    if (preferences.silent_mode && percent > 0) {
+      preferences.silent_mode = false;
+      app::UpdateSoundPreferences(preferences);
+      control_center_.Refresh();
+    }
+    return speaker_volume_callback_(percent, true);
+  };
+  config.get_wifi_enabled = [] {
+    return app::HasWifiPreferences() &&
+        app::GetWifiPreferences().enabled_requested;
+  };
+  config.set_wifi_enabled = [this](bool enabled) {
+    app::WifiPreferences preferences = app::GetWifiPreferences();
+    preferences.enabled_requested = enabled;
+    app::UpdateWifiPreferences(preferences);
+    if (wifi_provider_ != nullptr) {
+      wifi_provider_->SetWifiEnabled(enabled);
+    }
+  };
+  config.get_bluetooth_enabled = [] {
+    return app::GetBluetoothPreferences().enabled_requested;
+  };
+  config.set_bluetooth_enabled = [](bool enabled) {
+    // The co-processor is BLE-only; this preference gates BLE, never audio.
+    app::BluetoothPreferences preferences;
+    preferences.enabled_requested = enabled;
+    app::UpdateBluetoothPreferences(preferences);
+  };
+  config.get_silent_mode = [] {
+    return app::GetSoundPreferences().silent_mode;
+  };
+  config.set_silent_mode = [this](bool enabled) {
+    app::SoundPreferences preferences = app::GetSoundPreferences();
+    preferences.silent_mode = enabled;
+    app::UpdateSoundPreferences(preferences);
+    if (speaker_volume_callback_) {
+      // Silent mode mutes the output without losing the stored volume.
+      speaker_volume_callback_(
+          enabled ? 0 : preferences.volume_percent, false);
+    }
+  };
+  config.request_screen_lock = [this] {
+    if (screen_lock_callback_) {
+      screen_lock_callback_();
+    }
+  };
+
+  const bool control_center_ready = control_center_.Init(config);
+  if (!control_center_ready) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create control center failed\n");
+  }
+
+  SystemGestureCallbacks callbacks;
+  callbacks.home_drag = [this](int progress) {
+    HandleHomeGestureDrag(progress);
+  };
+  callbacks.home_release = [this](bool committed) {
+    HandleHomeGestureRelease(committed);
+  };
+  callbacks.control_center_drag = [this](int progress) {
+    HandleControlCenterDrag(progress);
+  };
+  callbacks.control_center_release = [this](bool committed) {
+    HandleControlCenterRelease(committed);
+  };
+  InitializeSystemGestures(std::move(callbacks));
+  SetHomeIndicatorColor(theme_provider_.colors().on_surface);
+  SetHomeIndicatorVisible(true);
+  return control_center_ready;
+}
+
+void UiManager::HandleHomeGestureDrag(int progress_permille) {
+  if (!AreShellGesturesAvailable()) {
+    return;
+  }
+
+  lv_obj_t* target = active_view_container_ != nullptr
+      ? active_view_container_
+      : launcher_container_;
+  if (target == nullptr) {
+    return;
+  }
+
+  const int progress =
+      std::clamp(progress_permille, 0, kGestureProgressFull);
+  // The launcher is already home, so it only fades slightly; an app view also
+  // slides up behind the finger.
+  if (active_view_container_ != nullptr) {
+    lv_obj_set_style_translate_y(target,
+        -kHomeGestureParallaxPixels * progress / kGestureProgressFull,
+        LV_PART_MAIN);
+  }
+  constexpr int kFullOpacity = static_cast<int>(LV_OPA_COVER);
+  const int opacity = kFullOpacity -
+      (kFullOpacity - static_cast<int>(kHomeGestureMinimumOpacity)) *
+          progress / kGestureProgressFull;
+  lv_obj_set_style_opa(target,
+      static_cast<lv_opa_t>(std::clamp(opacity, 0, kFullOpacity)),
+      LV_PART_MAIN);
+}
+
+void UiManager::HandleHomeGestureRelease(bool committed) {
+  lv_obj_t* target = active_view_container_ != nullptr
+      ? active_view_container_
+      : launcher_container_;
+  if (target != nullptr) {
+    lv_obj_set_style_translate_y(target, 0, LV_PART_MAIN);
+    lv_obj_set_style_opa(target, LV_OPA_COVER, LV_PART_MAIN);
+  }
+
+  if (!committed || !AreShellGesturesAvailable()) {
+    return;
+  }
+
+  // Going home also dismisses whatever system surface is on top of it.
+  if (control_center_.IsVisible()) {
+    control_center_.Close();
+    return;
+  }
+  if (IsPromptDialogVisible(&keyboard_expansion_unavailable_prompt_)) {
+    CloseKeyboardExpansionUnavailablePrompt();
+    return;
+  }
+  if (power_menu_ != nullptr) {
+    HidePowerMenu();
+    return;
+  }
+  if (active_view_container_ != nullptr) {
+    ShowLauncher();
+    return;
+  }
+  // Already on the launcher: snap back to the first page.
+  if (page_scroller_ != nullptr && home_page_ != nullptr) {
+    lv_obj_scroll_to_view(home_page_, LV_ANIM_ON);
+  }
+}
+
+void UiManager::HandleControlCenterDrag(int progress_permille) {
+  if (!AreShellGesturesAvailable()) {
+    return;
+  }
+  control_center_.SetDragProgress(progress_permille);
+}
+
+void UiManager::HandleControlCenterRelease(bool committed) {
+  if (!AreShellGesturesAvailable()) {
+    control_center_.Close();
+    return;
+  }
+  if (committed) {
+    control_center_.Open();
+  } else {
+    control_center_.Close();
+  }
+}
+
 void UiManager::PageScrollEventCallback(lv_event_t* event) {
   const lv_event_code_t code = lv_event_get_code(event);
   if (code != LV_EVENT_SCROLL_END) {
@@ -1616,6 +1902,9 @@ void UiManager::RelayoutForScreenSize() {
   startup_progress_animating_ = false;
   startup_progress_pending_percent_ = 0;
   volume_overlay_.Reset();
+  // The control center is sized against the display, so rebuild it too.
+  control_center_.Relayout();
+  SetHomeIndicatorVisible(true);
 
   if (lock_screen_ != nullptr) {
     lv_obj_delete(lock_screen_);

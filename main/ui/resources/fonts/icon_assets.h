@@ -65,4 +65,24 @@ inline constexpr char kNetworkWifi3Bar[] = "\xEE\xAF\xA1";
 inline constexpr char kNetworkWifi2Bar[] = "\xEE\xAF\x96";
 inline constexpr char kNetworkWifi1Bar[] = "\xEE\xAF\xA4";
 
+inline constexpr char kExplore[] = "\xEE\xA1\xBA";
+inline constexpr char kMap[] = "\xEE\x95\x9B";
+inline constexpr char kMenuBook[] = "\xEE\xA8\x99";
+inline constexpr char kMic[] = "\xEE\x8C\x9D";
+inline constexpr char kPhotoLibrary[] = "\xEE\x90\x93";
+inline constexpr char kVideogameAsset[] = "\xEE\x8C\xB8";
+
+inline constexpr char kPause[] = "\xEE\x80\xB4";
+inline constexpr char kPlayArrow[] = "\xEE\x80\xB7";
+
+inline constexpr char kMyLocation[] = "\xEE\x95\x9C";
+inline constexpr char kRemove[] = "\xEE\x85\x9B";
+
+inline constexpr char kRoute[] = "\xEE\xAB\x8D";
+
+inline constexpr char kFiberManualRecord[] = "\xEE\x81\xA1";
+inline constexpr char kPhotoCamera[] = "\xEE\x90\x92";
+inline constexpr char kPlayCircle[] = "\xEE\x87\x84";
+inline constexpr char kVideocam[] = "\xEE\x81\x8B";
+
 }  // namespace lilygo_box::ui::icon

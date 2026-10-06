@@ -23,6 +23,23 @@ struct CameraPreviewFrameInfo {
   uint32_t sequence = 0;
 };
 
+enum class VideoRecordingState : uint8_t {
+  kIdle,
+  kRecording,
+  kCompleted,
+  kError,
+};
+
+struct VideoRecordingStatus {
+  VideoRecordingState state = VideoRecordingState::kIdle;
+  uint32_t elapsed_ms = 0;
+  uint32_t frame_count = 0;
+  uint64_t bytes_written = 0;
+  // Frames actually reaching the file, which drops below the target when the
+  // card cannot keep up.
+  uint32_t frames_per_second = 0;
+};
+
 class CameraProvider {
  public:
   virtual ~CameraProvider() = default;
@@ -66,6 +83,42 @@ class CameraProvider {
    */
   virtual bool CopyCameraPreviewFrame(
       uint8_t* buffer, size_t buffer_size, CameraPreviewFrameInfo* info) = 0;
+
+  /**
+   * @brief Encodes the current preview frame as a JPEG and writes it to a file.
+   * @param path Absolute path of the file to create.
+   * @return true when a photo was written.
+   */
+  virtual bool CaptureCameraPhoto(const char* path) {
+    (void)path;
+    return false;
+  }
+
+  /**
+   * @brief Starts recording the preview into a Motion JPEG video.
+   * @param path Absolute path of the .avi file to create.
+   * @return true when recording started.
+   */
+  virtual bool StartVideoRecording(const char* path) {
+    (void)path;
+    return false;
+  }
+
+  /**
+   * @brief Stops the current recording and finalises the file.
+   * @return true when the stop request was accepted.
+   */
+  virtual bool StopVideoRecording() { return false; }
+
+  /**
+   * @brief Reads the state of the current or last recording.
+   * @param status Status output.
+   * @return true when the status was filled in.
+   */
+  virtual bool ReadVideoRecordingStatus(VideoRecordingStatus* status) {
+    (void)status;
+    return false;
+  }
 };
 
 }  // namespace lilygo_box::hal

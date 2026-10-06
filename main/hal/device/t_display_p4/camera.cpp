@@ -14,11 +14,15 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "app/diagnostics/camera_error.h"
 #include "app/storage/display_storage.h"
 #include "base/logger.h"
+#include "driver/jpeg_encode.h"
+#include "survival/avi_writer.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -45,6 +49,17 @@ constexpr uint32_t kCameraStopWaitTimeoutMs = camera_utils::kStopWaitTimeoutMs;
 constexpr uint32_t kCameraSensorReadyPollIntervalMs =
     camera_utils::kSensorReadyPollIntervalMs;
 constexpr uint32_t kCameraStartupTimeoutMs = camera_utils::kStartupTimeoutMs;
+// Photo capture: quality 90 keeps detail without ballooning the file, and the
+// hardware encoder finishes a 1280x720 frame far inside this timeout.
+constexpr uint32_t kCaptureJpegQuality = 90;
+constexpr int kCaptureEncodeTimeoutMs = 2000;
+// Video trades some quality for a frame rate the card can absorb: at 720p and
+// quality 80 a frame is roughly 40 kB, so 15 fps is about 600 kB/s.
+constexpr uint32_t kVideoJpegQuality = 80;
+constexpr uint32_t kVideoTargetFps = 15;
+constexpr uint32_t kVideoFramePeriodMs = 1000 / kVideoTargetFps;
+constexpr uint32_t kVideoTaskStackBytes = 6 * 1024;
+constexpr UBaseType_t kVideoTaskPriority = 4;
 constexpr uint32_t kCameraPowerCycleOffDelayMs =
     camera_utils::kPowerCycleOffDelayMs;
 constexpr uint32_t kCameraOutputClearFrameCount =
@@ -748,6 +763,311 @@ bool TDisplayP4Device::RenderCameraFrame(
   }
   xSemaphoreGive(camera_preview_.output_mutex);
   return transformed;
+}
+
+bool TDisplayP4Device::CaptureCameraPhoto(const char* path) {
+  if (path == nullptr || path[0] == '\0') {
+    return false;
+  }
+
+  CameraPreviewFrameInfo info;
+  if (!GetCameraPreviewFrameInfo(&info) || info.data_size == 0 ||
+      info.width == 0 || info.height == 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "No preview frame to capture\n");
+    return false;
+  }
+
+  jpeg_enc_input_format_t source_format = JPEG_ENCODE_IN_FORMAT_RGB565;
+  if (info.bits_per_pixel == 24) {
+    source_format = JPEG_ENCODE_IN_FORMAT_RGB888;
+  } else if (info.bits_per_pixel != 16) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Unsupported preview pixel depth for capture: %u\n",
+        static_cast<unsigned int>(info.bits_per_pixel));
+    return false;
+  }
+
+  // The encoder wants its buffers from a specific memory region, so the frame
+  // is copied into a buffer it allocated rather than reusing the preview one.
+  const jpeg_encode_memory_alloc_cfg_t input_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
+  };
+  size_t input_capacity = 0;
+  auto* input_buffer = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(info.data_size, &input_config, &input_capacity));
+  if (input_buffer == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Allocate capture input buffer failed (%u bytes)\n",
+        static_cast<unsigned int>(info.data_size));
+    return false;
+  }
+
+  CameraPreviewFrameInfo copied;
+  if (!CopyCameraPreviewFrame(input_buffer, input_capacity, &copied)) {
+    free(input_buffer);
+    return false;
+  }
+
+  // A quality-90 JPEG never approaches the raw frame size, so the raw size is a
+  // safe upper bound for the compressed output.
+  const jpeg_encode_memory_alloc_cfg_t output_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
+  };
+  size_t output_capacity = 0;
+  auto* output_buffer = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(copied.data_size, &output_config,
+          &output_capacity));
+  if (output_buffer == nullptr) {
+    free(input_buffer);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Allocate capture output buffer failed\n");
+    return false;
+  }
+
+  jpeg_encoder_handle_t encoder = nullptr;
+  const jpeg_encode_engine_cfg_t engine_config = {
+      .intr_priority = 0,
+      .timeout_ms = kCaptureEncodeTimeoutMs,
+  };
+  esp_err_t error = jpeg_new_encoder_engine(&engine_config, &encoder);
+  if (error != ESP_OK) {
+    free(input_buffer);
+    free(output_buffer);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create JPEG encoder failed: %s\n", esp_err_to_name(error));
+    return false;
+  }
+
+  const jpeg_encode_cfg_t encode_config = {
+      .height = copied.height,
+      .width = copied.width,
+      .src_type = source_format,
+      .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
+      .image_quality = kCaptureJpegQuality,
+      .pixel_reverse = false,
+  };
+  uint32_t encoded_size = 0;
+  error = jpeg_encoder_process(encoder, &encode_config, input_buffer,
+      static_cast<uint32_t>(copied.data_size), output_buffer,
+      static_cast<uint32_t>(output_capacity), &encoded_size);
+  jpeg_del_encoder_engine(encoder);
+  free(input_buffer);
+
+  if (error != ESP_OK || encoded_size == 0) {
+    free(output_buffer);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "JPEG encode failed: %s\n", esp_err_to_name(error));
+    return false;
+  }
+
+  FILE* file = std::fopen(path, "wb");
+  if (file == nullptr) {
+    free(output_buffer);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Open photo file failed: %s\n", path);
+    return false;
+  }
+  const size_t written = std::fwrite(output_buffer, 1, encoded_size, file);
+  std::fclose(file);
+  free(output_buffer);
+
+  if (written != encoded_size) {
+    std::remove(path);
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Write photo failed: %s\n", path);
+    return false;
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Captured %ux%u photo, %u bytes -> %s\n",
+      static_cast<unsigned int>(copied.width),
+      static_cast<unsigned int>(copied.height),
+      static_cast<unsigned int>(encoded_size), path);
+  return true;
+}
+
+bool TDisplayP4Device::StartVideoRecording(const char* path) {
+  if (path == nullptr || path[0] == '\0' || video_.running.load()) {
+    return false;
+  }
+  if (std::strlen(path) >= sizeof(video_.path)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Video path is too long: %s\n", path);
+    return false;
+  }
+
+  CameraPreviewFrameInfo info;
+  if (!GetCameraPreviewFrameInfo(&info) || info.width == 0 ||
+      info.height == 0) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "No preview running, cannot record\n");
+    return false;
+  }
+
+  std::snprintf(video_.path, sizeof(video_.path), "%s", path);
+  video_.stop_requested.store(false);
+  video_.failed.store(false);
+  video_.frame_count.store(0);
+  video_.elapsed_ms.store(0);
+  video_.measured_fps.store(0);
+  video_.bytes_written.store(0);
+  video_.running.store(true);
+
+  if (xTaskCreate(VideoRecordingTaskEntry, "video_rec",
+          kVideoTaskStackBytes, this, kVideoTaskPriority, nullptr) != pdPASS) {
+    video_.running.store(false);
+    return false;
+  }
+  return true;
+}
+
+bool TDisplayP4Device::StopVideoRecording() {
+  if (!video_.running.load()) {
+    return true;
+  }
+  video_.stop_requested.store(true);
+  return true;
+}
+
+bool TDisplayP4Device::ReadVideoRecordingStatus(VideoRecordingStatus* status) {
+  if (status == nullptr) {
+    return false;
+  }
+  *status = VideoRecordingStatus();
+  if (video_.failed.load()) {
+    status->state = VideoRecordingState::kError;
+  } else if (video_.running.load()) {
+    status->state = VideoRecordingState::kRecording;
+  } else if (video_.frame_count.load() > 0) {
+    status->state = VideoRecordingState::kCompleted;
+  }
+  status->elapsed_ms = video_.elapsed_ms.load();
+  status->frame_count = video_.frame_count.load();
+  status->bytes_written = video_.bytes_written.load();
+  status->frames_per_second = video_.measured_fps.load();
+  return true;
+}
+
+void TDisplayP4Device::VideoRecordingTaskEntry(void* context) {
+  auto* self = static_cast<TDisplayP4Device*>(context);
+  if (self != nullptr) {
+    self->RunVideoRecordingTask();
+  }
+  vTaskDelete(nullptr);
+}
+
+void TDisplayP4Device::RunVideoRecordingTask() {
+  CameraPreviewFrameInfo info;
+  if (!GetCameraPreviewFrameInfo(&info) || info.data_size == 0) {
+    video_.failed.store(true);
+    video_.running.store(false);
+    return;
+  }
+
+  jpeg_enc_input_format_t source_format = JPEG_ENCODE_IN_FORMAT_RGB565;
+  if (info.bits_per_pixel == 24) {
+    source_format = JPEG_ENCODE_IN_FORMAT_RGB888;
+  } else if (info.bits_per_pixel != 16) {
+    video_.failed.store(true);
+    video_.running.store(false);
+    return;
+  }
+
+  // The encoder and its buffers are set up once and reused for every frame;
+  // allocating per frame would not keep up with the frame rate.
+  const jpeg_encode_memory_alloc_cfg_t input_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
+  };
+  size_t input_capacity = 0;
+  auto* input_buffer = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(info.data_size, &input_config, &input_capacity));
+  const jpeg_encode_memory_alloc_cfg_t output_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
+  };
+  size_t output_capacity = 0;
+  auto* output_buffer = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(info.data_size, &output_config,
+          &output_capacity));
+
+  jpeg_encoder_handle_t encoder = nullptr;
+  const jpeg_encode_engine_cfg_t engine_config = {
+      .intr_priority = 0,
+      .timeout_ms = kCaptureEncodeTimeoutMs,
+  };
+  survival::AviWriter writer;
+
+  if (input_buffer == nullptr || output_buffer == nullptr ||
+      jpeg_new_encoder_engine(&engine_config, &encoder) != ESP_OK ||
+      !writer.Open(video_.path, info.width, info.height, kVideoTargetFps)) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Could not start recording %s\n", video_.path);
+    if (encoder != nullptr) {
+      jpeg_del_encoder_engine(encoder);
+    }
+    free(input_buffer);
+    free(output_buffer);
+    video_.failed.store(true);
+    video_.running.store(false);
+    return;
+  }
+
+  const uint32_t started_ms =
+      static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  TickType_t next_frame = xTaskGetTickCount();
+  uint32_t last_sequence = 0xFFFFFFFFU;
+
+  while (!video_.stop_requested.load()) {
+    CameraPreviewFrameInfo current;
+    if (GetCameraPreviewFrameInfo(&current) &&
+        current.sequence != last_sequence &&
+        CopyCameraPreviewFrame(input_buffer, input_capacity, &current)) {
+      last_sequence = current.sequence;
+
+      const jpeg_encode_cfg_t encode_config = {
+          .height = current.height,
+          .width = current.width,
+          .src_type = source_format,
+          .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
+          .image_quality = kVideoJpegQuality,
+          .pixel_reverse = false,
+      };
+      uint32_t encoded_size = 0;
+      if (jpeg_encoder_process(encoder, &encode_config, input_buffer,
+              static_cast<uint32_t>(current.data_size), output_buffer,
+              static_cast<uint32_t>(output_capacity), &encoded_size) ==
+              ESP_OK &&
+          encoded_size > 0) {
+        if (!writer.AddFrame(output_buffer, encoded_size)) {
+          // The container is full or the card failed; stopping cleanly keeps
+          // what has been recorded so far playable.
+          break;
+        }
+        video_.frame_count.store(writer.frame_count());
+        video_.bytes_written.store(writer.bytes_written());
+      }
+    }
+
+    const uint32_t elapsed =
+        static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
+        started_ms;
+    video_.elapsed_ms.store(elapsed);
+    if (elapsed > 0) {
+      video_.measured_fps.store(writer.frame_count() * 1000U / elapsed);
+    }
+    xTaskDelayUntil(&next_frame, pdMS_TO_TICKS(kVideoFramePeriodMs));
+  }
+
+  const bool closed = writer.Close();
+  jpeg_del_encoder_engine(encoder);
+  free(input_buffer);
+  free(output_buffer);
+  if (!closed) {
+    video_.failed.store(true);
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Recorded %u frames to %s\n",
+      static_cast<unsigned int>(video_.frame_count.load()), video_.path);
+  video_.running.store(false);
 }
 
 }  // namespace lilygo_box::hal

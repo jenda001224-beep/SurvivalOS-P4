@@ -13,6 +13,7 @@
 #include "hal/lvgl_port.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/back_navigation_controller.h"
+#include "ui/input/system_gestures.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
@@ -377,8 +378,30 @@ void ObservePassthroughPointerInput(lv_indev_state_t input_state,
  * @param hardware_edge_hint 硬件是否提供了有效的边缘触摸提示
  * @return 本次输入被边缘返回手势占用时返回 true，否则返回 false
  */
-bool InterceptPointerInput(
-    lv_indev_state_t input_state, lv_point_t point, bool hardware_edge_hint) {
+bool InterceptPointerInput(lv_indev_state_t input_state, lv_point_t point,
+    bool hardware_edge_hint) {
+  // The iOS-style system gestures own the top and bottom edges and get first
+  // refusal on every sample; the horizontal back gesture only sees what is
+  // left over.
+  {
+    lv_display_t* gesture_display =
+        g_lvgl_port == nullptr ? nullptr : g_lvgl_port->lvgl_display();
+    const int gesture_width = gesture_display == nullptr
+        ? 0
+        : lv_display_get_horizontal_resolution(gesture_display);
+    const int gesture_height = gesture_display == nullptr
+        ? 0
+        : lv_display_get_vertical_resolution(gesture_display);
+    if (HandleSystemGesturePointerInput(
+            input_state, point, gesture_width, gesture_height)) {
+      // A system gesture took over, so drop whatever the edge-back tracker was
+      // building up.
+      g_state = {};
+      HideIndicator(true);
+      return true;
+    }
+  }
+
   if (g_passthrough_mode && input_state != LV_INDEV_STATE_PRESSED) {
     ObservePassthroughPointerInput(input_state, point, hardware_edge_hint, 0);
     return false;

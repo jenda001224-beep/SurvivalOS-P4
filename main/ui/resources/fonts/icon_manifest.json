@@ -20,7 +20,9 @@
       "size": 22,
       "optical_size": 22,
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_22.c",
-      "icons": ["Bolt"]
+      "icons": [
+        "Bolt"
+      ]
     },
     {
       "id": "material_rounded_fill_32",
@@ -49,6 +51,7 @@
       "icons": [
         "Delete",
         "Folder",
+        "Mic",
         "PowerSettingsNew",
         "Refresh",
         "Settings"
@@ -63,13 +66,19 @@
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_fill_56.c",
       "icons": [
         "Camera",
+        "Explore",
         "FolderOpen",
+        "Map",
         "Menu",
+        "MenuBook",
+        "Mic",
         "Music",
+        "PhotoLibrary",
         "PowerSettingsNew",
         "RestartAlt",
         "SdStorage",
         "SettingsInputAntenna",
+        "VideogameAsset",
         "VolumeOff",
         "VolumeUp"
       ]
@@ -103,7 +112,9 @@
         "wght": 200
       },
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_w200_46.c",
-      "icons": ["BatteryAndroid0"]
+      "icons": [
+        "BatteryAndroid0"
+      ]
     },
     {
       "id": "material_rounded_outline_w300_38",
@@ -118,7 +129,9 @@
         "wght": 300
       },
       "output": "main/ui/resources/fonts/icons/lvgl_font_material_rounded_outline_w300_38.c",
-      "icons": ["Keyboard"]
+      "icons": [
+        "Keyboard"
+      ]
     },
     {
       "id": "material_rounded_outline_56",
@@ -142,39 +155,110 @@
     }
   ],
   "icons": {
-    "Add": {"cpp_name": "kAdd", "codepoint": 57669},
-    "AppList": {"cpp_name": "kAppList", "codepoint": 58819},
-    "ArrowBack": {"cpp_name": "kArrowBack", "codepoint": 58820},
+    "Add": {
+      "cpp_name": "kAdd",
+      "codepoint": 57669
+    },
+    "AppList": {
+      "cpp_name": "kAppList",
+      "codepoint": 58819
+    },
+    "ArrowBack": {
+      "cpp_name": "kArrowBack",
+      "codepoint": 58820
+    },
     "BatteryAndroid0": {
       "cpp_name": "kBatteryAndroid0",
       "codepoint": 62221
-    },
-    "BatteryAndroidQuestion": {
-      "cpp_name": "kBatteryAndroidQuestion",
-      "codepoint": 62210
     },
     "BatteryAndroidFull": {
       "cpp_name": "kBatteryAndroidFull",
       "codepoint": 62212
     },
-    "Bolt": {"cpp_name": "kBolt", "codepoint": 59915},
-    "Bluetooth": {"cpp_name": "kBluetooth", "codepoint": 57767},
-    "Camera": {"cpp_name": "kCamera", "codepoint": 58287},
-    "Cancel": {"cpp_name": "kCancel", "codepoint": 59528},
-    "CellTower": {"cpp_name": "kCellTower", "codepoint": 60346},
-    "Check": {"cpp_name": "kCheck", "codepoint": 58826},
-    "CheckCircle": {"cpp_name": "kCheckCircle", "codepoint": 59500},
-    "ChevronRight": {"cpp_name": "kChevronRight", "codepoint": 58828},
-    "Close": {"cpp_name": "kClose", "codepoint": 58829},
-    "Delete": {"cpp_name": "kDelete", "codepoint": 59694},
-    "Draft": {"cpp_name": "kDraft", "codepoint": 58989},
-    "File": {"cpp_name": "kFile", "codepoint": 58989},
-    "Folder": {"cpp_name": "kFolder", "codepoint": 58055},
-    "FolderOpen": {"cpp_name": "kFolderOpen", "codepoint": 58056},
-    "Home": {"cpp_name": "kHome", "codepoint": 59826},
-    "Image": {"cpp_name": "kImage", "codepoint": 58356},
-    "Info": {"cpp_name": "kInfo", "codepoint": 59534},
-    "Keyboard": {"cpp_name": "kKeyboard", "codepoint": 58130},
+    "BatteryAndroidQuestion": {
+      "cpp_name": "kBatteryAndroidQuestion",
+      "codepoint": 62210
+    },
+    "Bluetooth": {
+      "cpp_name": "kBluetooth",
+      "codepoint": 57767
+    },
+    "Bolt": {
+      "cpp_name": "kBolt",
+      "codepoint": 59915
+    },
+    "Camera": {
+      "cpp_name": "kCamera",
+      "codepoint": 58287
+    },
+    "Cancel": {
+      "cpp_name": "kCancel",
+      "codepoint": 59528
+    },
+    "CellTower": {
+      "cpp_name": "kCellTower",
+      "codepoint": 60346
+    },
+    "Check": {
+      "cpp_name": "kCheck",
+      "codepoint": 58826
+    },
+    "CheckCircle": {
+      "cpp_name": "kCheckCircle",
+      "codepoint": 59500
+    },
+    "ChevronRight": {
+      "cpp_name": "kChevronRight",
+      "codepoint": 58828
+    },
+    "Close": {
+      "cpp_name": "kClose",
+      "codepoint": 58829
+    },
+    "Delete": {
+      "cpp_name": "kDelete",
+      "codepoint": 59694
+    },
+    "Draft": {
+      "cpp_name": "kDraft",
+      "codepoint": 58989
+    },
+    "Explore": {
+      "cpp_name": "kExplore",
+      "codepoint": 59514
+    },
+    "FiberManualRecord": {
+      "cpp_name": "kFiberManualRecord",
+      "codepoint": 57441
+    },
+    "File": {
+      "cpp_name": "kFile",
+      "codepoint": 58989
+    },
+    "Folder": {
+      "cpp_name": "kFolder",
+      "codepoint": 58055
+    },
+    "FolderOpen": {
+      "cpp_name": "kFolderOpen",
+      "codepoint": 58056
+    },
+    "Home": {
+      "cpp_name": "kHome",
+      "codepoint": 59826
+    },
+    "Image": {
+      "cpp_name": "kImage",
+      "codepoint": 58356
+    },
+    "Info": {
+      "cpp_name": "kInfo",
+      "codepoint": 59534
+    },
+    "Keyboard": {
+      "cpp_name": "kKeyboard",
+      "codepoint": 58130
+    },
     "KeyboardArrowDown": {
       "cpp_name": "kKeyboardArrowDown",
       "codepoint": 58131
@@ -183,16 +267,52 @@
       "cpp_name": "kKeyboardArrowUp",
       "codepoint": 58134
     },
-    "Lock": {"cpp_name": "kLock", "codepoint": 59545},
-    "Memory": {"cpp_name": "kMemory", "codepoint": 58146},
-    "Menu": {"cpp_name": "kMenu", "codepoint": 58834},
-    "Music": {"cpp_name": "kMusic", "codepoint": 58373},
+    "Lock": {
+      "cpp_name": "kLock",
+      "codepoint": 59545
+    },
+    "Map": {
+      "cpp_name": "kMap",
+      "codepoint": 58715
+    },
+    "Memory": {
+      "cpp_name": "kMemory",
+      "codepoint": 58146
+    },
+    "Menu": {
+      "cpp_name": "kMenu",
+      "codepoint": 58834
+    },
+    "MenuBook": {
+      "cpp_name": "kMenuBook",
+      "codepoint": 59929
+    },
+    "Mic": {
+      "cpp_name": "kMic",
+      "codepoint": 58141
+    },
+    "Music": {
+      "cpp_name": "kMusic",
+      "codepoint": 58373
+    },
+    "MyLocation": {
+      "cpp_name": "kMyLocation",
+      "codepoint": 58716
+    },
     "NearMe": {
       "cpp_name": "kNearMe",
       "codepoint": 58729,
-      "adjustments": {"44": {"offset_x": -1, "offset_y": 0}}
+      "adjustments": {
+        "44": {
+          "offset_x": -1,
+          "offset_y": 0
+        }
+      }
     },
-    "NetworkWifi": {"cpp_name": "kNetworkWifi", "codepoint": 57786},
+    "NetworkWifi": {
+      "cpp_name": "kNetworkWifi",
+      "codepoint": 57786
+    },
     "NetworkWifi1Bar": {
       "cpp_name": "kNetworkWifi1Bar",
       "codepoint": 60388
@@ -205,20 +325,69 @@
       "cpp_name": "kNetworkWifi3Bar",
       "codepoint": 60385
     },
+    "Pause": {
+      "cpp_name": "kPause",
+      "codepoint": 57396
+    },
+    "PhotoCamera": {
+      "cpp_name": "kPhotoCamera",
+      "codepoint": 58386
+    },
+    "PhotoLibrary": {
+      "cpp_name": "kPhotoLibrary",
+      "codepoint": 58387
+    },
+    "PlayArrow": {
+      "cpp_name": "kPlayArrow",
+      "codepoint": 57399
+    },
+    "PlayCircle": {
+      "cpp_name": "kPlayCircle",
+      "codepoint": 57796
+    },
     "PowerSettingsNew": {
       "cpp_name": "kPowerSettingsNew",
       "codepoint": 63687
     },
-    "Refresh": {"cpp_name": "kRefresh", "codepoint": 58837},
-    "Repeat": {"cpp_name": "kRepeat", "codepoint": 57408},
-    "RepeatOne": {"cpp_name": "kRepeatOne", "codepoint": 57409},
-    "RestartAlt": {"cpp_name": "kRestartAlt", "codepoint": 61523},
-    "SdStorage": {"cpp_name": "kSdStorage", "codepoint": 58915},
-    "Storage": {"cpp_name": "kStorage", "codepoint": 57819},
-    "Settings": {"cpp_name": "kSettings", "codepoint": 59576},
+    "Refresh": {
+      "cpp_name": "kRefresh",
+      "codepoint": 58837
+    },
+    "Remove": {
+      "cpp_name": "kRemove",
+      "codepoint": 57691
+    },
+    "Repeat": {
+      "cpp_name": "kRepeat",
+      "codepoint": 57408
+    },
+    "RepeatOne": {
+      "cpp_name": "kRepeatOne",
+      "codepoint": 57409
+    },
+    "RestartAlt": {
+      "cpp_name": "kRestartAlt",
+      "codepoint": 61523
+    },
+    "Route": {
+      "cpp_name": "kRoute",
+      "codepoint": 60109
+    },
+    "SdStorage": {
+      "cpp_name": "kSdStorage",
+      "codepoint": 58915
+    },
+    "Settings": {
+      "cpp_name": "kSettings",
+      "codepoint": 59576
+    },
     "SettingsInputAntenna": {
       "cpp_name": "kSettingsInputAntenna",
       "codepoint": 59583
+    },
+    "Shuffle": {
+      "cpp_name": "kShuffle",
+      "codepoint": 57411
     },
     "SignalWifi4Bar": {
       "cpp_name": "kSignalWifi4Bar",
@@ -228,13 +397,45 @@
       "cpp_name": "kSignalWifiStatusbarNotConnected",
       "codepoint": 61679
     },
-    "Shuffle": {"cpp_name": "kShuffle", "codepoint": 57411},
-    "Sunny": {"cpp_name": "kSunny", "codepoint": 59418},
-    "TouchApp": {"cpp_name": "kTouchApp", "codepoint": 59667},
-    "Usb": {"cpp_name": "kUsb", "codepoint": 57824},
-    "Visibility": {"cpp_name": "kVisibility", "codepoint": 59636},
-    "VolumeOff": {"cpp_name": "kVolumeOff", "codepoint": 57423},
-    "VolumeUp": {"cpp_name": "kVolumeUp", "codepoint": 57424},
-    "Warning": {"cpp_name": "kWarning", "codepoint": 61571}
+    "Storage": {
+      "cpp_name": "kStorage",
+      "codepoint": 57819
+    },
+    "Sunny": {
+      "cpp_name": "kSunny",
+      "codepoint": 59418
+    },
+    "TouchApp": {
+      "cpp_name": "kTouchApp",
+      "codepoint": 59667
+    },
+    "Usb": {
+      "cpp_name": "kUsb",
+      "codepoint": 57824
+    },
+    "Videocam": {
+      "cpp_name": "kVideocam",
+      "codepoint": 57419
+    },
+    "VideogameAsset": {
+      "cpp_name": "kVideogameAsset",
+      "codepoint": 58168
+    },
+    "Visibility": {
+      "cpp_name": "kVisibility",
+      "codepoint": 59636
+    },
+    "VolumeOff": {
+      "cpp_name": "kVolumeOff",
+      "codepoint": 57423
+    },
+    "VolumeUp": {
+      "cpp_name": "kVolumeUp",
+      "codepoint": 57424
+    },
+    "Warning": {
+      "cpp_name": "kWarning",
+      "codepoint": 61571
+    }
   }
 }
