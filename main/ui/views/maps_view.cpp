@@ -778,8 +778,12 @@ lv_obj_t* CreateMapsView(lv_obj_t* parent, const app::AppEntry& app_entry,
     ApplyTrailsButtonState(state);
     RefreshTiles(state, 6);
   } else if (state->status_label != nullptr) {
+    const bool card_mounted =
+        state->storage != nullptr && state->storage->IsSdCardMounted();
     lv_label_set_text(state->status_label,
-        "No maps. Copy .pmtiles files into /maps on the SD card.");
+        card_mounted
+            ? "SD card OK, but no maps. Copy .pmtiles files into /maps."
+            : "SD card not detected (needs FAT32 or exFAT).");
   }
   UpdateStatus(state);
 

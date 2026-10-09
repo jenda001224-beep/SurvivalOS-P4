@@ -481,9 +481,13 @@ void RebuildGrid(PhotosViewState* state) {
   lv_obj_clean(state->grid);
 
   if (state->photo_count == 0) {
+    const bool card_mounted =
+        state->storage != nullptr && state->storage->IsSdCardMounted();
     lv_obj_t* empty = CreateLabel(state->grid,
-        "No photos yet.\nTake one with the Camera app.", 0x8A8A8E,
-        &lvgl_font_google_sans_flex_24);
+        card_mounted
+            ? "No photos yet.\nTake one with the Camera app."
+            : "SD card not detected.\nIt needs FAT32 or exFAT.",
+        0x8A8A8E, &lvgl_font_google_sans_flex_24);
     if (empty != nullptr) {
       lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
       lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 60);

@@ -3,13 +3,13 @@
   "board": "LILYGO T-Display-P4 V1.0",
   "version": "1.1.2",
   "project": "lilygobox-espidf",
-  "built": "Oct  6 2026 10:55:27",
+  "built": "Oct  7 2026 07:07:39",
   "idf": "v5.5.5",
-  "generated": "2026-10-07 01:21",
+  "generated": "2026-10-07 08:01",
   "image": "survivalos-p4.bin",
-  "size": 4671200,
-  "sha256": "ba3dc328fbc09243575471fdfeae84e529f2ce5a6d2dab67ad105fc128970f71",
-  "md5": "ccf08875989c0fa2d643f3cbbb639047",
+  "size": 4726656,
+  "sha256": "cfdd72fa68d62ecb920de18bc2a5393c9c3c497bdd741fa4c3cd6c3c3fe07ca9",
+  "md5": "54f5093fecf2698eb84a1596ede81342",
   "chip": "ESP32-P4",
   "chip_id": 18,
   "min_chip_rev": 0,
@@ -21,5 +21,5 @@
     "otadata": 61440,
     "app": 131072
   },
-  "app_size": 4540128
+  "app_size": 4595584
 }

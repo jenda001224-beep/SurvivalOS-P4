@@ -1,195 +1,193 @@
-/**
- * @Description: Compass calibration storage
+/*
+ * @Description: 指南针校准参数 TLV 编解码与 NVS 缓存
+ * @Author: LILYGO_L
+ * @Date: 2026-09-29 00:00:00
+ * @LastEditTime: 2026-09-29 00:00:00
  * @License: GPL 3.0
  */
 #include "app/storage/compass_storage.h"
 
 #include <array>
 #include <cmath>
-#include <cstddef>
-#include <cstdint>
 
 #include "app/storage/storage_internal.h"
 #include "app/storage/tlv_storage.h"
 #include "base/logger.h"
-#include "esp_err.h"
-#include "nvs.h"
 
 namespace lilygo_box::app {
 namespace {
 
-constexpr const char* kCompassNvsNamespace = "settings";
-constexpr const char* kCompassNvsKey = "compass_cal";
-constexpr size_t kCompassTlvCapacity = 64;
-// Offsets are persisted as thousandths of a microtesla so the TLV container can
-// stay integer-only.
-constexpr float kOffsetScale = 1000.0F;
-// Anything beyond this is not a plausible hard-iron offset and is rejected.
-constexpr float kOffsetLimitUt = 2000.0F;
+constexpr char kCompassNvsKey[] = "compass_cal";
+constexpr size_t kCompassTlvCapacity = 128;
+// 偏置以 nT、比例以百万分之一编码，避免直接存储结构体布局或浮点字节序。
+constexpr float kOffsetUnits = 1000.0F;
+constexpr float kScaleUnits = 1000000.0F;
 
-// Allocated field numbers may be kept but never renumbered or reused.
+// 三轴磁场偏置及比例的 TLV 字段编号。
 enum class CompassField : uint16_t {
-  kCalibrated = 1,
-  kOffsetXMilliUt = 2,
-  kOffsetYMilliUt = 3,
-  kOffsetZMilliUt = 4,
+  kOffsetX = 1,
+  kOffsetY = 2,
+  kOffsetZ = 3,
+  kScaleX = 4,
+  kScaleY = 5,
+  kScaleZ = 6,
 };
 
-float NormalizeOffset(float value) {
-  if (!std::isfinite(value)) {
-    return 0.0F;
-  }
-  if (value > kOffsetLimitUt) {
-    return kOffsetLimitUt;
-  }
-  if (value < -kOffsetLimitUt) {
-    return -kOffsetLimitUt;
-  }
-  return value;
-}
-
-CompassCalibration NormalizeCalibration(const CompassCalibration& source) {
-  CompassCalibration result;
-  result.calibrated = source.calibrated;
-  result.offset_x_ut = NormalizeOffset(source.offset_x_ut);
-  result.offset_y_ut = NormalizeOffset(source.offset_y_ut);
-  result.offset_z_ut = NormalizeOffset(source.offset_z_ut);
-  return result;
-}
-
-bool AreCalibrationsEqual(
-    const CompassCalibration& left, const CompassCalibration& right) {
-  return left.calibrated == right.calibrated &&
-      left.offset_x_ut == right.offset_x_ut &&
-      left.offset_y_ut == right.offset_y_ut &&
-      left.offset_z_ut == right.offset_z_ut;
-}
-
-bool DecodeCalibration(
-    const storage::TlvBuffer& buffer, CompassCalibration* calibration) {
-  if (calibration == nullptr) {
+/**
+ * @brief 验证校准记录的有效状态、有限性及参数范围
+ * @param data 待验证的校准记录
+ * @return 参数可以安全使用时返回 true
+ */
+bool ValidCalibration(const CompassCalibrationData& data) {
+  if (!data.ready) {
     return false;
   }
-  CompassCalibration decoded;
-  storage::TlvReader reader(
-      storage::TlvDomain::kCompass, buffer.data.get(), buffer.size);
+  for (int i = 0; i < 3; ++i) {
+    if (!std::isfinite(data.offset[i]) || std::fabs(data.offset[i]) > 1000.0F ||
+        !std::isfinite(data.scale[i]) || data.scale[i] < 0.5F || data.scale[i] > 2.0F) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief 比较两个校准缓存，避免无变化时重复写入 Flash
+ * @param left 左侧记录
+ * @param right 右侧记录
+ * @return 完全一致时返回 true
+ */
+bool EqualCalibration(const CompassCalibrationData& left,
+    const CompassCalibrationData& right) {
+  if (left.ready != right.ready) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    if (left.offset[i] != right.offset[i] || left.scale[i] != right.scale[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+NvsStorageCache<CompassCalibrationData> g_compass_cache(
+    StorageDomain::kCompass, EqualCalibration);
+
+/**
+ * @brief 解码校准 TLV，拒绝缺字段、重复字段及无效参数
+ * @param buffer 已通过 TLV 容器和 CRC 检查的缓冲区
+ * @param data 成功时接收完整记录
+ * @return 全部必需字段及数值有效时返回 true
+ */
+bool DecodeCalibration(const storage::TlvBuffer& buffer,
+    CompassCalibrationData& data) {
+  CompassCalibrationData decoded;
+  uint16_t seen = 0;
+  storage::TlvReader reader(storage::TlvDomain::kCompass,
+      buffer.data.get(), buffer.size);
   storage::TlvField field;
   while (true) {
-    const storage::TlvReadResult result = reader.Next(&field);
-    if (result == storage::TlvReadResult::kEnd) {
-      *calibration = NormalizeCalibration(decoded);
-      return true;
-    }
+    const auto result = reader.Next(&field);
     if (result == storage::TlvReadResult::kInvalid) {
       return false;
     }
-    switch (static_cast<CompassField>(field.tag())) {
-      case CompassField::kCalibrated: {
-        uint8_t value = 0;
-        if (!field.ReadUint8(&value)) {
-          return false;
-        }
-        decoded.calibrated = value != 0;
-        break;
+    if (result == storage::TlvReadResult::kEnd) {
+      decoded.ready = seen == 0x3F;  // 六个校准参数全部存在。
+      if (!ValidCalibration(decoded)) {
+        return false;
       }
-      case CompassField::kOffsetXMilliUt:
-      case CompassField::kOffsetYMilliUt:
-      case CompassField::kOffsetZMilliUt: {
-        int32_t value = 0;
-        if (!field.ReadInt32(&value)) {
-          return false;
-        }
-        const float offset = static_cast<float>(value) / kOffsetScale;
-        if (static_cast<CompassField>(field.tag()) ==
-            CompassField::kOffsetXMilliUt) {
-          decoded.offset_x_ut = offset;
-        } else if (static_cast<CompassField>(field.tag()) ==
-            CompassField::kOffsetYMilliUt) {
-          decoded.offset_y_ut = offset;
-        } else {
-          decoded.offset_z_ut = offset;
-        }
-        break;
-      }
-      default:
-        break;
+      data = decoded;
+      return true;
+    }
+    const uint16_t tag = field.tag();
+    if (tag < 1 || tag > 6) {
+      continue;
+    }
+    const uint16_t bit = 1U << (tag - 1);
+    if ((seen & bit) != 0) {
+      return false;
+    }
+    seen |= bit;
+    int32_t value = 0;
+    if (!field.ReadInt32(&value)) {
+      return false;
+    }
+    if (tag <= static_cast<uint16_t>(CompassField::kOffsetZ)) {
+      decoded.offset[tag - static_cast<uint16_t>(CompassField::kOffsetX)] =
+          value / kOffsetUnits;
+    } else {
+      decoded.scale[tag - static_cast<uint16_t>(CompassField::kScaleX)] =
+          value / kScaleUnits;
     }
   }
 }
-
-bool EncodeCalibration(const CompassCalibration& calibration, uint8_t* output,
-    size_t capacity, size_t* encoded_size) {
-  const CompassCalibration normalized = NormalizeCalibration(calibration);
-  storage::TlvWriter writer(storage::TlvDomain::kCompass, output, capacity);
-  return writer.WriteUint8(static_cast<uint16_t>(CompassField::kCalibrated),
-             normalized.calibrated ? 1 : 0) &&
-      writer.WriteInt32(
-          static_cast<uint16_t>(CompassField::kOffsetXMilliUt),
-          static_cast<int32_t>(normalized.offset_x_ut * kOffsetScale)) &&
-      writer.WriteInt32(
-          static_cast<uint16_t>(CompassField::kOffsetYMilliUt),
-          static_cast<int32_t>(normalized.offset_y_ut * kOffsetScale)) &&
-      writer.WriteInt32(
-          static_cast<uint16_t>(CompassField::kOffsetZMilliUt),
-          static_cast<int32_t>(normalized.offset_z_ut * kOffsetScale)) &&
-      writer.Finalize(encoded_size);
-}
-
-NvsStorageCache<CompassCalibration> g_compass_cache(
-    StorageDomain::kCompass, AreCalibrationsEqual);
 
 }  // namespace
 
-void InitCompassCache() {
-  CompassCalibration loaded;
+bool InitCompassStorage() {
+  if (!EnsureStorageCoordinatorInitialized() || !EnsureApplicationNvsInitialized()) {
+    return false;
+  }
+  CompassCalibrationData loaded;
+  if (g_compass_cache.Read(&loaded)) {
+    return true;
+  }
+  bool success = true;
   nvs_handle_t handle = 0;
-  if (OpenApplicationNvs(kCompassNvsNamespace, NVS_READONLY, &handle) ==
-      ESP_OK) {
+  const esp_err_t opened = OpenApplicationNvs("settings", NVS_READONLY, &handle);
+  if (opened == ESP_OK) {
     storage::TlvBuffer buffer;
     esp_err_t error = ESP_OK;
-    const storage::TlvLoadResult result = storage::LoadTlvBuffer(handle,
-        kCompassNvsKey, storage::TlvDomain::kCompass, kCompassTlvCapacity,
-        &buffer, &error);
-    if (result == storage::TlvLoadResult::kLoaded &&
-        !DecodeCalibration(buffer, &loaded)) {
+    const auto result = storage::LoadTlvBuffer(handle, kCompassNvsKey,
+        storage::TlvDomain::kCompass, kCompassTlvCapacity, &buffer, &error);
+    if ((result == storage::TlvLoadResult::kLoaded &&
+            !DecodeCalibration(buffer, loaded)) ||
+        result == storage::TlvLoadResult::kInvalid ||
+        result == storage::TlvLoadResult::kError) {
+      loaded = {};
+      success = false;
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Compass TLV payload is invalid\n");
-    } else if (result == storage::TlvLoadResult::kInvalid) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Compass TLV container is invalid\n");
-    } else if (result == storage::TlvLoadResult::kError) {
-      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-          "Load compass TLV failed: %s\n", esp_err_to_name(error));
+          "Compass calibration unavailable: invalid/incompatible record or NVS "
+          "read error (%s)\n", esp_err_to_name(error));
     }
     nvs_close(handle);
-  }
-  if (!g_compass_cache.Initialize(NormalizeCalibration(loaded))) {
+  } else if (opened != ESP_ERR_NVS_NOT_FOUND) {
+    success = false;
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
-        "Initialize compass storage cache failed\n");
+        "Open compass calibration NVS failed: %s\n", esp_err_to_name(opened));
   }
+  return g_compass_cache.Initialize(loaded) && success;
 }
 
-CompassCalibration GetCompassCalibration() {
-  CompassCalibration calibration;
-  g_compass_cache.Read(&calibration);
-  return calibration;
+CompassCalibrationData GetCompassCalibration() {
+  CompassCalibrationData data;
+  g_compass_cache.Read(&data);
+  return data;
 }
 
-bool UpdateCompassCalibration(const CompassCalibration& calibration) {
-  return g_compass_cache.UpdateAndPersist(NormalizeCalibration(calibration));
+bool SaveCompassCalibration(const CompassCalibrationData& calibration) {
+  return ValidCalibration(calibration) &&
+         g_compass_cache.UpdateAndPersist(calibration);
 }
 
 StorageStageResult StageCompassStorage(nvs_handle_t handle) {
-  const CompassCalibration* calibration = nullptr;
-  if (!g_compass_cache.BeginFlush(&calibration)) {
+  const CompassCalibrationData* data = nullptr;
+  if (!g_compass_cache.BeginFlush(&data)) {
     return StorageStageResult::kClean;
   }
   std::array<uint8_t, kCompassTlvCapacity> buffer = {};
-  size_t encoded_size = 0;
-  if (!EncodeCalibration(*calibration, buffer.data(), buffer.size(),
-          &encoded_size) ||
-      nvs_set_blob(handle, kCompassNvsKey, buffer.data(), encoded_size) !=
-          ESP_OK) {
+  storage::TlvWriter writer(storage::TlvDomain::kCompass,
+      buffer.data(), buffer.size());
+  bool result = true;
+  for (int i = 0; i < 3; ++i) {
+    result &= writer.WriteInt32(static_cast<uint16_t>(CompassField::kOffsetX) + i,
+        static_cast<int32_t>(std::lround(data->offset[i] * kOffsetUnits)));
+    result &= writer.WriteInt32(static_cast<uint16_t>(CompassField::kScaleX) + i,
+        static_cast<int32_t>(std::lround(data->scale[i] * kScaleUnits)));
+  }
+  size_t size = 0;
+  if (!result || !writer.Finalize(&size) ||
+      nvs_set_blob(handle, kCompassNvsKey, buffer.data(), size) != ESP_OK) {
     return StorageStageResult::kFailed;
   }
   return StorageStageResult::kStaged;

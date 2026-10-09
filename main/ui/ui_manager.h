@@ -20,6 +20,7 @@
 #include "lvgl.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/wallpaper.h"
+#include "ui/widgets/battery_overview_card.h"
 #include "ui/widgets/control_center.h"
 #include "ui/widgets/prompt/prompt_dialog.h"
 #include "ui/widgets/status_bar.h"
@@ -687,6 +688,8 @@ class UiManager final {
   lv_obj_t* home_time_label_ = nullptr;
   lv_obj_t* home_date_label_ = nullptr;
   lv_obj_t* home_week_label_ = nullptr;
+  // SurvivalOS: battery card shown on the home page in place of the clock.
+  BatteryOverviewCard home_battery_card_;
   lv_obj_t* reserved_page_ = nullptr;
   lv_obj_t* active_view_container_ = nullptr;
   std::function<void(bool visible)> active_view_lock_screen_callback_;

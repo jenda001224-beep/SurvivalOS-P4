@@ -39,6 +39,11 @@ constexpr int kIndicatorWidthDivisor = 3;
 constexpr int kIndicatorHeight = 6;
 constexpr int kIndicatorBottomMargin = 10;
 constexpr lv_opa_t kIndicatorOpacity = 150;
+// While the home gesture is dragged the bar itself follows the finger: it
+// rises, widens and brightens. Nothing else on screen moves, so each frame
+// repaints a strip a few pixels tall instead of the whole display.
+constexpr int kIndicatorMaximumLift = 46;
+constexpr int kIndicatorGrowthPercent = 22;
 
 enum class GesturePhase {
   // No touch, or a touch that started away from either edge.
@@ -66,6 +71,8 @@ bool g_enabled = true;
 lv_obj_t* g_home_indicator = nullptr;
 bool g_home_indicator_requested = false;
 uint32_t g_home_indicator_color = 0xFFFFFF;
+// Progress of the home gesture in permille, 0 when no gesture is active.
+int g_home_indicator_progress = 0;
 
 /**
  * @brief Clamps a value into an inclusive range.
@@ -182,12 +189,21 @@ void RefreshHomeIndicator() {
     return;
   }
 
-  const int width = std::max(80, layer_width / kIndicatorWidthDivisor);
+  const int progress = ClampInt(g_home_indicator_progress, 0, kProgressFull);
+  const int rest_width = std::max(80, layer_width / kIndicatorWidthDivisor);
+  const int width = rest_width +
+      rest_width * kIndicatorGrowthPercent * progress / (100 * kProgressFull);
+  const int lift = kIndicatorMaximumLift * progress / kProgressFull;
+  const int opacity = static_cast<int>(kIndicatorOpacity) +
+      (static_cast<int>(LV_OPA_COVER) - static_cast<int>(kIndicatorOpacity)) *
+          progress / kProgressFull;
   lv_obj_set_size(g_home_indicator, width, kIndicatorHeight);
   lv_obj_set_pos(g_home_indicator, (layer_width - width) / 2,
-      layer_height - kIndicatorHeight - kIndicatorBottomMargin);
+      layer_height - kIndicatorHeight - kIndicatorBottomMargin - lift);
   lv_obj_set_style_bg_color(
       g_home_indicator, lv_color_hex(g_home_indicator_color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(
+      g_home_indicator, static_cast<lv_opa_t>(opacity), LV_PART_MAIN);
   if (g_home_indicator_requested) {
     lv_obj_remove_flag(g_home_indicator, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_to_index(g_home_indicator, -1);
@@ -210,6 +226,10 @@ void FinishActiveGesture() {
   const bool commit = g_state.committed || IsCommittingFlick(travel);
 
   g_state = {};
+  if (g_home_indicator_progress != 0) {
+    g_home_indicator_progress = 0;
+    RefreshHomeIndicator();
+  }
 
   if (home) {
     if (g_callbacks.home_release) {
@@ -241,6 +261,10 @@ void SetSystemGesturesEnabled(bool enabled) {
   }
   g_enabled = enabled;
   g_state = {};
+  if (g_home_indicator_progress != 0) {
+    g_home_indicator_progress = 0;
+    RefreshHomeIndicator();
+  }
 }
 
 bool AreSystemGesturesEnabled() { return g_enabled; }
@@ -335,8 +359,13 @@ bool HandleSystemGesturePointerInput(lv_indev_state_t state, lv_point_t point,
     const int travel = std::max(0, -vertical);
     const int commit_distance = HomeCommitDistance(screen_height);
     UpdateCommitState(travel, commit_distance);
+    const int progress = TravelToProgress(travel, commit_distance);
+    if (progress != g_home_indicator_progress) {
+      g_home_indicator_progress = progress;
+      RefreshHomeIndicator();
+    }
     if (g_callbacks.home_drag) {
-      g_callbacks.home_drag(TravelToProgress(travel, commit_distance));
+      g_callbacks.home_drag(progress);
     }
     return true;
   }

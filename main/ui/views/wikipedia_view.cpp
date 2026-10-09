@@ -318,10 +318,17 @@ void ShowLibrary(WikipediaViewState* state) {
 
   ScanArchives(state);
   if (state->archive_count == 0) {
+    // Say which of the two it is: a card that did not mount and a card with no
+    // archives on it need different fixes.
+    const bool card_mounted =
+        state->storage != nullptr && state->storage->IsSdCardMounted();
     state->status_label = CreateLabel(state->body,
-        "No archives found.\n\nPut Kiwix ZIM files in /wiki on the SD card. "
-        "Files larger than 4 GB have to be split into .zimaa, .zimab, … parts "
-        "because the card is FAT32.",
+        card_mounted
+            ? "The SD card works, but it has no archives.\n\nPut Kiwix ZIM "
+              "files in /wiki on the card. Files larger than 2 GB have to be "
+              "split into .zimaa, .zimab, … parts."
+            : "SD card not detected.\n\nInsert a card formatted as FAT32 or "
+              "exFAT, then open Wikipedia again.",
         theme::ActiveThemeColors().on_surface_variant,
         &lvgl_font_google_sans_flex_24);
     if (state->status_label != nullptr) {

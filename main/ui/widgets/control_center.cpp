@@ -25,8 +25,11 @@ constexpr uint32_t kSliderFillColor = 0xF2F2F7;
 constexpr uint32_t kSliderIconColor = 0x8E8E93;
 constexpr uint32_t kBackdropColor = 0x000000;
 
-constexpr lv_opa_t kPanelOpacity = 242;
-constexpr lv_opa_t kBackdropOpacity = 150;
+// The panel is fully opaque and the backdrop never dims. A translucent panel or
+// a backdrop whose opacity follows the drag makes LVGL re-blend the whole
+// 568x1232 screen in software on every frame, which is what made the slide
+// stutter; this way only the strip the panel moves across is repainted.
+constexpr uint32_t kPanelBorderColor = 0x48484A;
 
 constexpr int kPanelSideMargin = 22;
 constexpr int kPanelTopMargin = 24;
@@ -84,7 +87,11 @@ bool ControlCenter::Init(const ControlCenterConfig& config) {
   lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_FLOATING);
-  lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_HIDDEN);
+  // The backdrop paints nothing; it only catches taps outside the panel. It is
+  // switched on and off through CLICKABLE rather than HIDDEN, because hiding or
+  // showing a full-screen object invalidates the whole display and that one
+  // full repaint is a visible hitch at the start of every swipe.
+  lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(backdrop_, layer_width, layer_height);
   lv_obj_set_pos(backdrop_, 0, 0);
   lv_obj_set_style_radius(backdrop_, 0, LV_PART_MAIN);
@@ -118,10 +125,14 @@ bool ControlCenter::Init(const ControlCenterConfig& config) {
   lv_obj_set_size(panel_, panel_width, panel_height_);
   lv_obj_set_pos(panel_, kPanelSideMargin, -panel_height_);
   lv_obj_set_style_radius(panel_, kPanelRadius, LV_PART_MAIN);
-  lv_obj_set_style_border_width(panel_, 0, LV_PART_MAIN);
+  // A hairline border stands in for the dimmed backdrop in setting the panel
+  // apart from whatever is underneath.
+  lv_obj_set_style_border_width(panel_, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(
+      panel_, lv_color_hex(kPanelBorderColor), LV_PART_MAIN);
   lv_obj_set_style_pad_all(panel_, 0, LV_PART_MAIN);
   lv_obj_set_style_bg_color(panel_, lv_color_hex(kPanelColor), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(panel_, kPanelOpacity, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(panel_, LV_OPA_COVER, LV_PART_MAIN);
 
   const int toggle_gap =
       (panel_width - 2 * kPanelPadding - kToggleCount * toggle_size) /
@@ -205,12 +216,6 @@ void ControlCenter::SetPanelOffset(void* target, int32_t value) {
   const int travel = self->PanelTravel();
   const int offset = std::clamp(static_cast<int>(value), 0, travel);
   lv_obj_set_y(self->panel_, self->panel_top_margin_ - offset);
-  if (self->backdrop_ != nullptr && travel > 0) {
-    const int opacity =
-        static_cast<int>(kBackdropOpacity) * (travel - offset) / travel;
-    lv_obj_set_style_bg_opa(self->backdrop_,
-        static_cast<lv_opa_t>(std::clamp(opacity, 0, 255)), LV_PART_MAIN);
-  }
 }
 
 void ControlCenter::SetDragProgress(int progress_permille) {
@@ -224,7 +229,7 @@ void ControlCenter::SetDragProgress(int progress_permille) {
     SetPanelOffset(this, PanelTravel());
     lv_obj_add_flag(panel_, LV_OBJ_FLAG_HIDDEN);
     if (backdrop_ != nullptr) {
-      lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
     }
     return;
   }
@@ -234,8 +239,7 @@ void ControlCenter::SetDragProgress(int progress_permille) {
     Refresh();
     lv_obj_remove_flag(panel_, LV_OBJ_FLAG_HIDDEN);
     if (backdrop_ != nullptr) {
-      lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_move_to_index(backdrop_, -1);
+      lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
     }
     lv_obj_move_to_index(panel_, -1);
   }
@@ -255,8 +259,7 @@ void ControlCenter::Open() {
     lv_obj_remove_flag(panel_, LV_OBJ_FLAG_HIDDEN);
   }
   if (backdrop_ != nullptr) {
-    lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_to_index(backdrop_, -1);
+    lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
   }
   lv_obj_move_to_index(panel_, -1);
   open_ = true;
@@ -281,7 +284,7 @@ void ControlCenter::CloseCompletedCallback(lv_anim_t* animation) {
   }
   lv_obj_add_flag(self->panel_, LV_OBJ_FLAG_HIDDEN);
   if (self->backdrop_ != nullptr) {
-    lv_obj_add_flag(self->backdrop_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(self->backdrop_, LV_OBJ_FLAG_CLICKABLE);
   }
 }
 
@@ -310,7 +313,7 @@ void ControlCenter::Close() {
     SetPanelOffset(this, PanelTravel());
     lv_obj_add_flag(panel_, LV_OBJ_FLAG_HIDDEN);
     if (backdrop_ != nullptr) {
-      lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
     }
   }
 }

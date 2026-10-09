@@ -188,13 +188,13 @@ const lv_font_t* MaterialFillIconFont32() {
  * @brief 获取桌面时间字体
  * @return 字体指针
  */
-const lv_font_t* HomeTimeFont() { return &lvgl_font_lineseedkr_rg_120; }
+[[maybe_unused]] const lv_font_t* HomeTimeFont() { return &lvgl_font_lineseedkr_rg_120; }
 
 /**
  * @brief 获取桌面日期字体
  * @return 字体指针
  */
-const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
+[[maybe_unused]] const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
 
 /**
  * @brief 计算应用图标单元格宽度
@@ -855,11 +855,11 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
 
   if (IsId(app_entry.id, "compass")) {
     return {
-        .symbol = icon::kExplore,
-        .image = nullptr,
-        .shell_color = 0xB03A2E,
-        .surface_color = 0xF0A79C,
-        .pressed_shell_color = 0x8E2E25,
+        .symbol = nullptr,
+        .image = &compass_inner_icon_64x64,
+        .shell_color = 0x67D8E9,
+        .surface_color = 0xC6FAFF,
+        .pressed_shell_color = 0x52ADBA,
         .image_offset_x = 0,
         .image_offset_y = 0,
     };
@@ -1572,17 +1572,6 @@ void UiManager::HandleEdgeSwipeBackRequest() {
   }
 }
 
-namespace {
-
-// How far the foreground view is nudged while the home gesture is dragged.
-// Kept small on purpose: every pixel of movement repaints the full screen, and
-// the parallax only has to hint that the view is leaving.
-constexpr int kHomeGestureParallaxPixels = 72;
-constexpr lv_opa_t kHomeGestureMinimumOpacity = 140;
-constexpr int kGestureProgressFull = 1000;
-
-}  // namespace
-
 void UiManager::SetSpeakerVolumeCallback(
     std::function<bool(int, bool)> callback) {
   speaker_volume_callback_ = std::move(callback);
@@ -1691,40 +1680,15 @@ void UiManager::HandleHomeGestureDrag(int progress_permille) {
     return;
   }
 
-  lv_obj_t* target = active_view_container_ != nullptr
-      ? active_view_container_
-      : launcher_container_;
-  if (target == nullptr) {
-    return;
-  }
-
-  const int progress =
-      std::clamp(progress_permille, 0, kGestureProgressFull);
-  // The launcher is already home, so it only fades slightly; an app view also
-  // slides up behind the finger.
-  if (active_view_container_ != nullptr) {
-    lv_obj_set_style_translate_y(target,
-        -kHomeGestureParallaxPixels * progress / kGestureProgressFull,
-        LV_PART_MAIN);
-  }
-  constexpr int kFullOpacity = static_cast<int>(LV_OPA_COVER);
-  const int opacity = kFullOpacity -
-      (kFullOpacity - static_cast<int>(kHomeGestureMinimumOpacity)) *
-          progress / kGestureProgressFull;
-  lv_obj_set_style_opa(target,
-      static_cast<lv_opa_t>(std::clamp(opacity, 0, kFullOpacity)),
-      LV_PART_MAIN);
+  // Deliberately leaves the foreground view alone. Fading or sliding a whole
+  // view makes LVGL render it through an off-screen layer and repaint the full
+  // display on every touch sample, which the software renderer cannot do
+  // smoothly at this resolution. The home indicator bar gives the feedback
+  // instead (see system_gestures.cpp).
+  (void)progress_permille;
 }
 
 void UiManager::HandleHomeGestureRelease(bool committed) {
-  lv_obj_t* target = active_view_container_ != nullptr
-      ? active_view_container_
-      : launcher_container_;
-  if (target != nullptr) {
-    lv_obj_set_style_translate_y(target, 0, LV_PART_MAIN);
-    lv_obj_set_style_opa(target, LV_OPA_COVER, LV_PART_MAIN);
-  }
-
   if (!committed || !AreShellGesturesAvailable()) {
     return;
   }
@@ -1934,6 +1898,7 @@ void UiManager::RelayoutForScreenSize() {
     home_time_label_ = nullptr;
     home_date_label_ = nullptr;
     home_week_label_ = nullptr;
+    home_battery_card_ = {};
     page_indicator_ = nullptr;
     first_page_dot_ = nullptr;
     second_page_dot_ = nullptr;
@@ -2120,44 +2085,23 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kHorizontalPadding,
       ClockTop(screen_width, screen_height));
 
-  lv_obj_t* time_label = CreateLabel(
-      group, clock_time_text_, lv_color_hex(theme::FixedColors().home_content));
-  if (time_label == nullptr) {
+  // SurvivalOS: the home page shows the battery card from Settings > Power
+  // Saving & Battery here instead of the large clock, date and weekday. The
+  // time stays in the status bar and on the lock screen; the three home label
+  // pointers stay null, which UpdateClockLabels already allows for.
+  constexpr int kBatteryCardSideInset = 14;
+  const int card_width = clock_width - 2 * kBatteryCardSideInset;
+  if (!CreateBatteryOverviewCard(group, card_width, &home_battery_card_)) {
     lv_obj_delete(group);
     return nullptr;
   }
-  SetTextStyle(time_label, lv_color_hex(theme::FixedColors().home_content),
-      HomeTimeFont());
-  lv_obj_set_size(time_label, 400, 110);
-  lv_obj_set_style_text_opa(time_label, 245, LV_PART_MAIN);
-  lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  lv_obj_t* date_label = CreateLabel(
-      group, home_date_text_, lv_color_hex(theme::FixedColors().home_content));
-  if (date_label == nullptr) {
-    lv_obj_delete(group);
-    return nullptr;
+  lv_obj_set_pos(home_battery_card_.card, kBatteryCardSideInset,
+      std::max(0, (ClockGroupHeight(screen_width, screen_height) -
+                      kBatteryOverviewCardHeight) / 2));
+  if (system_status_cache_.battery_management_status_valid()) {
+    UpdateBatteryOverviewCard(
+        home_battery_card_, system_status_cache_.battery_management_status());
   }
-  SetTextStyle(date_label, lv_color_hex(theme::FixedColors().home_content),
-      HomeDateFont());
-  lv_obj_set_size(date_label, 400, 70);
-  lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
-  lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
-
-  lv_obj_t* week_label = CreateLabel(
-      group, home_week_text_, lv_color_hex(theme::FixedColors().home_content));
-  if (week_label == nullptr) {
-    lv_obj_delete(group);
-    return nullptr;
-  }
-  SetTextStyle(week_label, lv_color_hex(theme::FixedColors().home_content),
-      HomeDateFont());
-  lv_obj_set_size(week_label, 400, 50);
-  lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
-  lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
-  home_time_label_ = time_label;
-  home_date_label_ = date_label;
-  home_week_label_ = week_label;
   return group;
 }
 
@@ -2224,6 +2168,7 @@ void UiManager::UpdateClockLabels(const hal::RtcStatus& status) {
 void UiManager::UpdateBatteryStatus(
     const hal::BatteryManagementStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
+  UpdateBatteryOverviewCard(home_battery_card_, status);
   if (battery_management_status_callback_) {
     battery_management_status_callback_(status);
   }

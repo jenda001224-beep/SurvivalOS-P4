@@ -32,10 +32,13 @@ enum class TlvDomain : uint16_t {
   kKeyboardExpansion = 12,
   kInputMethod = 13,
   kBattery = 14,
+  // Compass calibration is upstream's code and keeps upstream's number; 15 is
+  // left free for upstream's developer-options domain.
+  kCompass = 16,
   // SurvivalOS domains live at 100+ so upstream can keep allocating low
-  // numbers without colliding with ours.
+  // numbers without colliding with ours. 101 was our first compass format and
+  // must not be reused.
   kBluetooth = 100,
-  kCompass = 101,
   kMap = 102,
 };
 

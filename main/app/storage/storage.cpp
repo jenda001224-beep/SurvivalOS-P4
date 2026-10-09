@@ -456,8 +456,11 @@ void InitStorage(
         "Initialize battery storage failed\n");
   }
   InitBluetoothCache();
-  InitCompassCache();
   InitMapCache();
+  if (!InitCompassStorage()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Initialize compass calibration storage failed\n");
+  }
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "NVS caches loaded: domains=%u, status=ready\n",
       static_cast<unsigned>(kStorageDomainCount));

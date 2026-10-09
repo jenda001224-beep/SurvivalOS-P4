@@ -18,9 +18,20 @@ bool TDisplayP4Device::EnsureSdCardMounted() {
     return true;
   }
 
-  const bool result = driver_.InitSdmmc(device::sd::kBasePath, SDMMC_FREQ_52M);
+  bool result = driver_.InitSdmmc(device::sd::kBasePath, SDMMC_FREQ_52M);
   if (!result) {
-    LogMessage(LogLevel::kWarning, __FILE__, __LINE__, "InitSdmmc failed\n");
+    // SurvivalOS: a large card that cannot hold a clean high-speed link on this
+    // board fails here with CRC or timeout errors. Default speed (20 MHz) is
+    // slower but far more forgiving, and a slow card beats no card. The driver
+    // only reports success or failure, so this also runs when no card is
+    // inserted; that costs one more short probe.
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "InitSdmmc failed at high speed; retrying at default speed\n");
+    result = driver_.InitSdmmc(device::sd::kBasePath, SDMMC_FREQ_DEFAULT);
+  }
+  if (!result) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "InitSdmmc failed: no card, or the card is not FAT32/exFAT\n");
     return false;
   }
   return IsSdCardMounted();

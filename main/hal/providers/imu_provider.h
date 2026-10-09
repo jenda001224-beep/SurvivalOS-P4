@@ -7,22 +7,25 @@
  */
 #pragma once
 
+#include <cstdint>
+
 namespace lilygo_box::hal {
 
 struct ImuStatus {
+  // 单调采样时间，单位 us；用于应用层按实际间隔积分角速度。
+  int64_t sample_time_us = 0;
+  float acceleration_g[3] = {};
+  // 与 acceleration_g 使用同一坐标基的三轴角速度，单位 deg/s。
+  bool angular_velocity_ready = false;
+  float angular_velocity_dps[3] = {};
   bool ready = false;
   float pitch_deg = 0.0F;
   float yaw_deg = 0.0F;
   float roll_deg = 0.0F;
-  // Raw magnetometer reading in microtesla, before the hard-iron offsets are
-  // applied. The compass app needs it to run its own calibration.
-  float magnetic_x_ut = 0.0F;
-  float magnetic_y_ut = 0.0F;
-  float magnetic_z_ut = 0.0F;
-  // Accelerometer reading in g, used to tell whether the device is level.
-  float acceleration_x_g = 0.0F;
-  float acceleration_y_g = 0.0F;
-  float acceleration_z_g = 0.0F;
+  // 未校准三轴磁场，单位 uT，与 pitch/roll 使用同一传感器坐标系。
+  // 供应用层指南针校准使用，不改变现有姿态数据的语义。
+  bool magnetic_field_ready = false;
+  float magnetic_field_ut[3] = {};
 };
 
 class ImuProvider {
@@ -39,18 +42,20 @@ class ImuProvider {
   virtual bool ReadImuStatus(ImuStatus* status) = 0;
 
   /**
-   * @brief Sets the hard-iron offsets subtracted from the magnetometer.
-   * @param offset_x_ut Offset on the X axis in microtesla.
-   * @param offset_y_ut Offset on the Y axis in microtesla.
-   * @param offset_z_ut Offset on the Z axis in microtesla.
-   * @return true when the board supports magnetometer calibration.
+   * @brief 将融合偏航角换算为当前板子的磁北方位角
+   * @param yaw_deg 融合输出的偏航角，单位度
+   * @return 按板级方向约定换算的方位角，范围 [0, 360)
    */
-  virtual bool SetMagnetometerCalibration(
-      float offset_x_ut, float offset_y_ut, float offset_z_ut) {
-    (void)offset_x_ut;
-    (void)offset_y_ut;
-    (void)offset_z_ut;
-    return false;
+  // SurvivalOS: upstream declares this pure virtual. A default is provided so
+  // boards this fork does not build for need no change; it only normalises.
+  virtual float ConvertImuHeading(float yaw_deg) const {
+    while (yaw_deg < 0.0F) {
+      yaw_deg += 360.0F;
+    }
+    while (yaw_deg >= 360.0F) {
+      yaw_deg -= 360.0F;
+    }
+    return yaw_deg;
   }
 };
 

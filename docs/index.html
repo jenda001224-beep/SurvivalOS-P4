@@ -79,9 +79,10 @@
   </div>
 
   <div class="warn">
-    <strong>Early build.</strong> This firmware compiles and the flasher passes its
-    simulated tests, but it has not yet been confirmed on a real device. Flashing
-    is reversible — see “Go back to the LILYGO factory firmware” below.
+    <strong>Early build.</strong> It boots and runs on a real T-Display-P4, but
+    it is work in progress and the newest changes may not have been tried on
+    hardware yet. Flashing is reversible — see “Go back to the LILYGO factory
+    firmware” below.
     Only for the <strong>T-Display-P4 V1.0</strong> (ESP32-P4 revision 1.x).
   </div>
 
@@ -512,7 +513,7 @@ async function loadOfficial() {
     if (!manifestResponse.ok) throw new Error(`manifest.json: HTTP ${manifestResponse.status}`);
     const manifest = await manifestResponse.json();
     $("fw-version").textContent =
-      `${manifest.name} ${manifest.version} · built ${manifest.built} · ${(manifest.size / 1048576).toFixed(1)} MB`;
+      `${manifest.name} ${manifest.version} · image ${manifest.generated} · ${(manifest.size / 1048576).toFixed(1)} MB`;
 
     addLog(`Downloading ${manifest.image}…`, "info");
     const response = await fetch(manifest.image + stamp, { cache: "no-store" });

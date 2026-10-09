@@ -523,14 +523,11 @@ class TDisplayP4Device final : public ScreenProvider,
   bool ReadImuStatus(ImuStatus* status) override;
 
   /**
-   * @brief Sets the hard-iron offsets subtracted from the magnetometer.
-   * @param offset_x_ut Offset on the X axis in microtesla.
-   * @param offset_y_ut Offset on the Y axis in microtesla.
-   * @param offset_z_ut Offset on the Z axis in microtesla.
-   * @return Always true; the offsets are applied in software.
+   * @brief 将融合偏航角换算为当前板子的磁北方位角
+   * @param yaw_deg 融合输出的偏航角，单位度
+   * @return 按板级方向约定换算的方位角，范围 [0, 360)
    */
-  bool SetMagnetometerCalibration(float offset_x_ut, float offset_y_ut,
-      float offset_z_ut) override;
+  float ConvertImuHeading(float yaw_deg) const override;
 
   /**
    * @brief 异步启用或停用 IP101 以太网
@@ -1391,6 +1388,17 @@ class TDisplayP4Device final : public ScreenProvider,
     SemaphoreHandle_t output_mutex = nullptr;
     // PPA 输出缓冲区
     std::unique_ptr<uint8_t, HeapCapsBufferDeleter> output_buffer;
+    // SurvivalOS: the frame being rendered. It is swapped with output_buffer
+    // once complete, so the UI never has to wait for a frame in progress and
+    // the preview task never has to wait for the UI's copy.
+    std::unique_ptr<uint8_t, HeapCapsBufferDeleter> output_back_buffer;
+    // SurvivalOS: true when the preview is an unscaled centre crop of the
+    // sensor frame that fills the screen width (portrait), instead of the whole
+    // 16:9 frame shrunk to fit with black bars above and below.
+    bool output_fill = false;
+    // Region of the sensor frame shown when output_fill is set.
+    uint32_t input_crop_x = 0;
+    uint32_t input_crop_y = 0;
     // PPA 输出缓冲区长度
     size_t output_buffer_size = 0;
     // PPA 输出图像宽度
@@ -1726,10 +1734,6 @@ class TDisplayP4Device final : public ScreenProvider,
   // 键盘扩展 ST25R3916 的 CIT 轮询状态。
   NfcState nfc_;
   std::atomic<bool> imu_enabled_{false};
-  // Hard-iron offsets in microtesla, subtracted before the heading is solved.
-  std::atomic<float> magnetometer_offset_x_ut_{0.0F};
-  std::atomic<float> magnetometer_offset_y_ut_{0.0F};
-  std::atomic<float> magnetometer_offset_z_ut_{0.0F};
   bool gps_running_ = false;
   GpsStatus gps_status_;
 };

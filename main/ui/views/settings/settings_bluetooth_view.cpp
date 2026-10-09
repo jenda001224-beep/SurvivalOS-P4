@@ -71,6 +71,19 @@ bool BuildBluetoothContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += kBasicRowHeight + 12;
+  // SurvivalOS: this page is an upstream placeholder with no Bluetooth stack
+  // behind it, and the ESP32-C6 radio is Bluetooth LE only. Say so, instead of
+  // leaving a switch that looks as if it should pair something.
+  if (!CreateSectionLabel(body, "Not available yet: this switch does nothing",
+          y, width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (!CreateSectionLabel(body, "The radio is LE only: no headphones or speakers",
+          y, width)) {
+    return false;
+  }
+  y += kBasicSectionHeight + 12;
   if (!CreateSectionLabel(body, "Device name", y, width)) {
     return false;
   }

@@ -205,6 +205,18 @@ void TDisplayP4Device::RunCameraPreviewTask() {
       continue;
     }
 
+    // SurvivalOS: if a second frame has finished in the meantime, show that
+    // one and hand the older buffer straight back. Displaying frames in
+    // arrival order would otherwise keep the preview one frame behind whenever
+    // rendering is slower than the sensor.
+    v4l2_buffer newer = {};
+    newer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    newer.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(camera_preview_.video_fd, VIDIOC_DQBUF, &newer) == 0) {
+      ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer);
+      buffer = newer;
+    }
+
     const bool frame_valid = buffer.index < kCameraBufferCount &&
                              buffer.bytesused > 0 &&
                              (buffer.flags & V4L2_BUF_FLAG_DONE) != 0 &&
@@ -587,6 +599,29 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
       output_rotated ? ScreenWidth() : ScreenHeight();
   camera_preview_.output_width = output_screen_width;
   camera_preview_.output_height = output_screen_height;
+  // SurvivalOS: with the screen upright, a landscape sensor frame scaled to
+  // fit is a thin strip between two large black bars. Show the centre of the
+  // frame at 1:1 instead: as wide as the screen and as tall as the sensor.
+  // Nothing is scaled, so it is also the sharpest and cheapest preview, and
+  // the buffer is barely more than half a screen. Sizes are rounded down to 16
+  // because photos and video are JPEG-encoded from this buffer in 16x16 blocks.
+  constexpr uint32_t kJpegBlockMask = ~15U;
+  const uint32_t fill_width = output_screen_width & kJpegBlockMask;
+  const uint32_t fill_height =
+      std::min<uint32_t>(camera_preview_.frame_height, output_screen_height) &
+      kJpegBlockMask;
+  camera_preview_.output_fill = !output_rotated &&
+      camera_preview_.frame_width > camera_preview_.frame_height &&
+      camera_preview_.frame_width >= fill_width && fill_width > 0 &&
+      fill_height > 0;
+  if (camera_preview_.output_fill) {
+    camera_preview_.output_width = fill_width;
+    camera_preview_.output_height = fill_height;
+    camera_preview_.input_crop_x =
+        ((camera_preview_.frame_width - fill_width) / 2) & ~1U;
+    camera_preview_.input_crop_y =
+        ((camera_preview_.frame_height - fill_height) / 2) & ~1U;
+  }
   camera_preview_.output_width =
       std::max<uint32_t>(1, camera_preview_.output_width);
   camera_preview_.output_height =
@@ -606,6 +641,18 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
     return CameraStartupAttemptResult::kStop;
   }
   camera_preview_.output_buffer.reset(static_cast<uint8_t*>(output_buffer));
+  void* output_back_buffer =
+      heap_caps_aligned_calloc(camera_preview_.ppa.CacheLineSize(), 1,
+          camera_preview_.output_buffer_size, MALLOC_CAP_SPIRAM);
+  if (output_back_buffer == nullptr) {
+    camera_preview_.output_buffer.reset();
+    camera_preview_.error.store(CameraError::kOutputBufferAllocationFailed);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Camera output back buffer allocation failed\n");
+    return CameraStartupAttemptResult::kStop;
+  }
+  camera_preview_.output_back_buffer.reset(
+      static_cast<uint8_t*>(output_back_buffer));
   camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
   camera_preview_.warmup_frames_remaining = kCameraWarmupFrameCount;
 
@@ -655,6 +702,8 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
     camera_preview_.video_fd = -1;
   }
   camera_preview_.output_buffer.reset();
+  camera_preview_.output_back_buffer.reset();
+  camera_preview_.output_fill = false;
   if (camera_preview_.output_mutex != nullptr) {
     vSemaphoreDelete(camera_preview_.output_mutex);
     camera_preview_.output_mutex = nullptr;
@@ -680,10 +729,12 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
 bool TDisplayP4Device::RenderCameraFrame(
     uint8_t* buffer, uint32_t width, uint32_t height) {
   if (buffer == nullptr || camera_preview_.output_buffer == nullptr ||
+      camera_preview_.output_back_buffer == nullptr ||
       camera_preview_.output_mutex == nullptr) {
     return false;
   }
 
+  const bool fill = camera_preview_.output_fill;
   const uint32_t output_width = camera_preview_.output_width;
   const uint32_t output_height = camera_preview_.output_height;
   const int output_rotation_angle = camera_preview_.output_rotation_angle;
@@ -691,13 +742,15 @@ bool TDisplayP4Device::RenderCameraFrame(
       output_rotation_angle == 90 || output_rotation_angle == 270;
   const uint32_t rotated_source_width = output_rotated ? height : width;
   const uint32_t rotated_source_height = output_rotated ? width : height;
-  const float scale = std::min(static_cast<float>(output_width) /
-                                   static_cast<float>(rotated_source_width),
-      static_cast<float>(output_height) /
-          static_cast<float>(rotated_source_height));
-  const uint32_t scaled_width = std::max<uint32_t>(
+  const float scale = fill
+      ? 1.0F
+      : std::min(static_cast<float>(output_width) /
+                     static_cast<float>(rotated_source_width),
+            static_cast<float>(output_height) /
+                static_cast<float>(rotated_source_height));
+  const uint32_t scaled_width = fill ? output_width : std::max<uint32_t>(
       1, static_cast<uint32_t>(std::round(rotated_source_width * scale)));
-  const uint32_t scaled_height = std::max<uint32_t>(
+  const uint32_t scaled_height = fill ? output_height : std::max<uint32_t>(
       1, static_cast<uint32_t>(std::round(rotated_source_height * scale)));
   const uint32_t output_offset_x =
       output_width > scaled_width ? (output_width - scaled_width) / 2 : 0;
@@ -720,14 +773,17 @@ bool TDisplayP4Device::RenderCameraFrame(
       .buffer = buffer,
       .pic_width = width,
       .pic_height = height,
-      .block_width = width,
-      .block_height = height,
-      .block_offset_x = 0,
-      .block_offset_y = 0,
+      .block_width = fill ? output_width : width,
+      .block_height = fill ? output_height : height,
+      .block_offset_x = fill ? camera_preview_.input_crop_x : 0,
+      .block_offset_y = fill ? camera_preview_.input_crop_y : 0,
       .color_mode = input_color_mode,
   };
+  // Render into the back buffer, which only this task touches, so the UI can
+  // keep copying the previous frame out of output_buffer meanwhile.
+  uint8_t* const target = camera_preview_.output_back_buffer.get();
   PpaSrmImageConfig output = {
-      .buffer = camera_preview_.output_buffer.get(),
+      .buffer = target,
       .buffer_size = aligned_output_size,
       .pic_width = output_width,
       .pic_height = output_height,
@@ -744,25 +800,26 @@ bool TDisplayP4Device::RenderCameraFrame(
       .scale_y = scale,
       .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,
   };
-  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) !=
-      pdTRUE) {
-    return false;
-  }
   if (camera_preview_.clear_output_frames_remaining > 0 ||
       output_offset_x > 0 || output_offset_y > 0) {
-    std::memset(camera_preview_.output_buffer.get(), 0,
-        camera_preview_.output_buffer_size);
+    std::memset(target, 0, camera_preview_.output_buffer_size);
     if (camera_preview_.clear_output_frames_remaining > 0) {
       --camera_preview_.clear_output_frames_remaining;
     }
   }
-  const bool transformed =
-      camera_preview_.ppa.Transform(input, output, transform);
-  if (transformed) {
-    camera_preview_.frame_sequence.fetch_add(1);
+  if (!camera_preview_.ppa.Transform(input, output, transform)) {
+    return false;
   }
+  // Publishing the frame is only a pointer swap, so the lock is held for
+  // microseconds instead of for a whole render.
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) !=
+      pdTRUE) {
+    return false;
+  }
+  camera_preview_.output_buffer.swap(camera_preview_.output_back_buffer);
+  camera_preview_.frame_sequence.fetch_add(1);
   xSemaphoreGive(camera_preview_.output_mutex);
-  return transformed;
+  return true;
 }
 
 bool TDisplayP4Device::CaptureCameraPhoto(const char* path) {

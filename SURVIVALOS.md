@@ -4,9 +4,9 @@ An unofficial fork of LILYGO's [lilygobox-espidf](https://github.com/Xinyuan-Lil
 that turns the **T-Display-P4 V1.0** into an offline "survival phone". Not affiliated
 with or endorsed by LILYGO.
 
-**Status: early build.** It compiles and the host-side tests pass, but it has not yet
-been confirmed on real hardware. Flashing is reversible: the web flasher can also
-write LILYGO's factory image back.
+**Status: early build.** It boots and runs on a real T-Display-P4 V1.0, but it is
+work in progress and the newest changes may not have been tried on hardware yet.
+Flashing is reversible: the web flasher can also write LILYGO's factory image back.
 
 - **Web flasher:** <https://jenda001224-beep.github.io/SurvivalOS-P4/> (Chrome or Edge, desktop)
 - **Based on:** `lilygobox-espidf` tag `v1.1.2`. `git diff v1.1.2` shows every change.
@@ -21,8 +21,14 @@ write LILYGO's factory image back.
   most 2 GiB because the SD card is FAT32 and file offsets are 32-bit.
 - Offline vector maps (PMTiles v3 + Mapbox Vector Tiles, rendered on the device)
   with GPS position and a hiking-trail overlay.
-- Compass (ICM20948 magnetometer with hard-iron calibration), Photos, Voice Memo,
-  photo and MJPEG/AVI video capture in Camera, WAV playback.
+- Photos, Voice Memo, photo and MJPEG/AVI video capture in Camera, WAV playback.
+- Camera viewfinder that fills the screen width with an unscaled centre crop of the
+  sensor instead of a letterboxed 16:9 strip.
+- Battery card (time remaining and charge) on the home page in place of the clock.
+- SD cards formatted as exFAT, and GPT partition tables, are readable
+  (`components/fatfs` overrides ESP-IDF's component, where exFAT is off).
+- Compass: upstream's own compass app, backported from lilygobox-espidf `5db8622`
+  (it is not part of v1.1.2), with the IMU code it needs.
 
 Sources live mostly in `main/survival/`, `main/ui/views/`, `main/ui/widgets/control_center.*`
 and `main/ui/input/system_gestures.*`.
@@ -58,4 +64,5 @@ non-blank otadata, bad checksum).
 
 GPL-3.0, like the firmware it is derived from; see [LICENSE](./LICENSE). The upstream
 README follows unchanged in [README.md](./README.md). Third-party parts keep their own
-licences: zstd (`components/zstd`, BSD), esptool-js (`docs/vendor`, Apache-2.0).
+licences: zstd (`components/zstd`, BSD), FatFs and its ESP-IDF glue
+(`components/fatfs`, BSD-style and Apache-2.0), esptool-js (`docs/vendor`, Apache-2.0).

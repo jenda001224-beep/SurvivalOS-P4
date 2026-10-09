@@ -46,11 +46,3 @@ CONFIG_ESP_HOSTED_CP_TARGET_ESP32C6=y
 # The vendor release images are built the same way (header: min 0.0, max 1.99).
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_0=y
-
-# --- SurvivalOS: never reboot the phone because the Wi-Fi link failed ---
-# ESP-Hosted restarts the whole system when the SDIO link to the ESP32-C6
-# misbehaves. Older V1.0 units ship ESP-AT (no SDIO slave) on the C6, and with
-# Wi-Fi left enabled that turns into a reboot loop; even on good units a restart
-# in the middle of a recording is worse than Wi-Fi staying down until the next
-# power cycle. The failure is still reported as ESP_HOSTED_EVENT_TRANSPORT_FAILURE.
-CONFIG_ESP_HOSTED_TRANSPORT_RESTART_ON_FAILURE=n

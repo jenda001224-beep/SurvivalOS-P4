@@ -15,6 +15,7 @@
 
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
+#include "app/restart_loop_guard.h"
 #include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/first_boot_storage.h"
@@ -748,6 +749,21 @@ bool Application::Init() {
   ui_manager_.RefreshSystemStatusNow();
   ui_manager_.SetStartupScreenProgress(33);
   lvgl_port_.Unlock();
+
+  // SurvivalOS: ESP-Hosted restarts the whole system when the SDIO link to the
+  // ESP32-C6 fails, and Wi-Fi starts again by itself on the next boot. With a
+  // co-processor that cannot answer (older units ship ESP-AT on it) that is an
+  // endless reboot. Break the loop by switching Wi-Fi off; the user can turn
+  // it back on from Settings or the Control Center.
+  if (app::IsDeviceInRestartLoop()) {
+    app::WifiPreferences wifi_preferences = app::GetWifiPreferences();
+    if (wifi_preferences.enabled_requested) {
+      wifi_preferences.enabled_requested = false;
+      app::UpdateWifiPreferences(wifi_preferences);
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Repeated restarts shortly after boot: Wi-Fi switched off\n");
+    }
+  }
 
   if (device_provider_context_.wifi != nullptr) {
     const BaseType_t task_result = xTaskCreate(StartupWifiAutoConnectTaskEntry,

@@ -700,7 +700,15 @@ void CameraRefreshTimerCallback(lv_timer_t* timer) {
   state->image_dsc.data = state->frame_buffer;
   if (source_changed) {
     lv_image_set_src(state->image, &state->image_dsc);
-    lv_obj_center(state->image);
+    if (static_cast<int>(info.height) < state->height) {
+      // A viewfinder shorter than the screen sits in the upper part, leaving
+      // the space below it to the shutter and mode buttons, rather than
+      // floating in the middle between two equal bars.
+      lv_obj_align(state->image, LV_ALIGN_TOP_MID, 0,
+          (state->height - static_cast<int>(info.height)) / 3);
+    } else {
+      lv_obj_center(state->image);
+    }
     state->last_width = info.width;
     state->last_height = info.height;
     state->last_stride = info.stride;
