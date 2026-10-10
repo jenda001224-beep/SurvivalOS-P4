@@ -180,6 +180,14 @@ def main():
         raw = app_bytes[desc_at + start:desc_at + start + length]
         return raw.split(b"\0")[0].decode()
 
+    # The firmware embeds "SVBUILD=<stamp>"; it shows the same stamp in its
+    # Control Center, so page and device can be compared at a glance.
+    marker = app_bytes.find(b"SVBUILD=")
+    require(marker >= 0, "app: build stamp not found (main/app/build_stamp.cpp)")
+    build_stamp = app_bytes[marker + 8:marker + 40].split(b"\0")[0].decode()
+    require(build_stamp and build_stamp != "unknown",
+            "app: build stamp is empty; reconfigure before building")
+
     version, project = text(16, 32), text(48, 32)
     built = f"{text(96, 16)} {text(80, 16)}"
     idf = text(112, 32)
@@ -208,6 +216,7 @@ def main():
         "name": "SurvivalOS",
         "board": "LILYGO T-Display-P4 V1.0",
         "version": version,
+        "build": build_stamp,
         "project": project,
         "built": built,
         "idf": idf,
@@ -239,7 +248,7 @@ def main():
     print(f"app         0x{APP_OFFSET:06X}  {len(app_bytes):>8} B  "
           f"rev {app['min_rev'] / 100:.2f}-{app['max_rev'] / 100:.2f}  "
           f"checksum+sha256 OK  ({100 * len(app_bytes) // APP_SLOT_SIZE}% of slot)")
-    print(f"app         {project} {version}, {idf}, built {built}")
+    print(f"app         {project} {version}, {idf}, build {build_stamp}")
     print(f"image       {OUT_DIR / IMAGE_NAME}  {len(image)} B")
     print(f"sha256      {manifest['sha256']}")
 

@@ -481,6 +481,10 @@ async function runFlash(bytes, name, clean) {
 
     setProgress(100, "Done");
     addLog("Done. SurvivalOS is starting — the first boot takes a few seconds.", "ok");
+    if (official && bytes === official.bytes && official.manifest.build) {
+      addLog(`To confirm it took: swipe down from the top edge of the device. ` +
+             `The panel must say “SurvivalOS build ${official.manifest.build}”.`, "info");
+    }
     addLog("If the screen stays black, see “The screen stays black after flashing” below.", "info");
   } catch (error) {
     addLog("Error: " + error.message, "err");
@@ -513,7 +517,7 @@ async function loadOfficial() {
     if (!manifestResponse.ok) throw new Error(`manifest.json: HTTP ${manifestResponse.status}`);
     const manifest = await manifestResponse.json();
     $("fw-version").textContent =
-      `${manifest.name} ${manifest.version} · image ${manifest.generated} · ${(manifest.size / 1048576).toFixed(1)} MB`;
+      `${manifest.name} · build ${manifest.build || manifest.generated} · ${(manifest.size / 1048576).toFixed(1)} MB`;
 
     addLog(`Downloading ${manifest.image}…`, "info");
     const response = await fetch(manifest.image + stamp, { cache: "no-store" });

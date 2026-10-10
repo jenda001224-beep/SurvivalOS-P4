@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include "hal/providers/battery_management_provider.h"
 #include "lvgl.h"
 
 namespace lilygo_box::ui {
@@ -37,6 +38,14 @@ lv_obj_t* CreateLockScreenView(
  */
 void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
     const char* date_text, const char* week_text);
+
+/**
+ * @brief Updates the battery card that the lock screen shows instead of a clock.
+ * @param lock_screen Lock screen created by CreateLockScreenView.
+ * @param status Latest battery status.
+ */
+void UpdateLockScreenViewBattery(
+    lv_obj_t* lock_screen, const hal::BatteryManagementStatus& status);
 
 /**
  * @brief 根据视觉上滑拖拽距离更新锁屏页面位置

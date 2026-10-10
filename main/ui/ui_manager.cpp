@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "app/app_catalog.h"
+#include "app/build_stamp.h"
 #include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "app/network_monitor.h"
@@ -1265,6 +1266,10 @@ bool UiManager::ShowLockScreen() {
   if (lock_screen_ != nullptr) {
     UpdateLockScreenViewClock(
         lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
+    if (system_status_cache_.battery_management_status_valid()) {
+      UpdateLockScreenViewBattery(
+          lock_screen_, system_status_cache_.battery_management_status());
+    }
     lv_obj_clear_flag(lock_screen_, LV_OBJ_FLAG_HIDDEN);
     ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
     lv_obj_move_to_index(lock_screen_, -1);
@@ -1283,6 +1288,10 @@ bool UiManager::ShowLockScreen() {
   lock_screen_ = CreateLockScreenView(root_screen_, options);
   if (lock_screen_ == nullptr) {
     return false;
+  }
+  if (system_status_cache_.battery_management_status_valid()) {
+    UpdateLockScreenViewBattery(
+        lock_screen_, system_status_cache_.battery_management_status());
   }
 
   ::lilygo_box::ui::SetLockScreenDragOffset(lock_screen_, 0);
@@ -1681,7 +1690,8 @@ bool UiManager::InitializeShellGestures() {
             wifi_reason[0] != '\0' ? wifi_reason : "(no detail)");
       }
     }
-    std::snprintf(buffer, buffer_size, "SD card: %s%s%s\nWi-Fi: %s",
+    std::snprintf(buffer, buffer_size,
+        "SurvivalOS build %s\nSD card: %s%s%s\nWi-Fi: %s", app::BuildStamp(),
         sd_mounted ? "OK" : "not mounted",
         !sd_mounted && sd_reason[0] != '\0' ? " - " : "",
         !sd_mounted ? sd_reason : "", wifi_text);
@@ -2206,6 +2216,7 @@ void UiManager::UpdateBatteryStatus(
     const hal::BatteryManagementStatus& status) {
   status_bar_.SetBatteryStatus(status.charge_percent, status.charging);
   UpdateBatteryOverviewCard(home_battery_card_, status);
+  UpdateLockScreenViewBattery(lock_screen_, status);
   if (battery_management_status_callback_) {
     battery_management_status_callback_(status);
   }

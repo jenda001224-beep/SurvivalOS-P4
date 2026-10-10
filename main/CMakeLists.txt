@@ -72,3 +72,10 @@ idf_component_register(
         spi_flash
         usb
         usb_host_msc)
+
+# SurvivalOS: stamp each build so the device can show which one it is running.
+# The timestamp is taken when CMake configures, and build.sh reconfigures before
+# every build; only app/build_stamp.cpp sees the definition.
+string(TIMESTAMP SURVIVALOS_BUILD_STAMP "%Y-%m-%d.%H%M")
+set_source_files_properties(app/build_stamp.cpp PROPERTIES
+    COMPILE_DEFINITIONS "SURVIVALOS_BUILD_STAMP=\"${SURVIVALOS_BUILD_STAMP}\"")

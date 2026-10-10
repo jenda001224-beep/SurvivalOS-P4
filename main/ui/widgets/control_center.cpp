@@ -43,9 +43,10 @@ constexpr int kToggleMaximumSize = 112;
 constexpr int kToggleRowGap = 24;
 constexpr int kSliderHeight = 300;
 constexpr int kSliderGap = 20;
-// Room under the sliders for the SD card / Wi-Fi status text: four lines.
+// Room under the sliders for the build / SD card / Wi-Fi status text: five
+// lines.
 constexpr int kHardwareStatusGap = 18;
-constexpr int kHardwareStatusHeight = 112;
+constexpr int kHardwareStatusHeight = 140;
 constexpr uint32_t kHardwareStatusColor = 0xAEAEB2;
 constexpr int kSliderIconBottomMargin = 22;
 

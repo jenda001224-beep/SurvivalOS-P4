@@ -13,6 +13,7 @@
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
 #include "ui/wallpaper.h"
+#include "ui/widgets/battery_overview_card.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -27,13 +28,13 @@ constexpr uint32_t kLockUnlockAnimationMs = 220;
  * @brief 获取锁屏时间字体
  * @return 字体指针
  */
-const lv_font_t* HomeTimeFont() { return &lvgl_font_lineseedkr_rg_120; }
+[[maybe_unused]] const lv_font_t* HomeTimeFont() { return &lvgl_font_lineseedkr_rg_120; }
 
 /**
  * @brief 获取锁屏日期字体
  * @return 字体指针
  */
-const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
+[[maybe_unused]] const lv_font_t* HomeDateFont() { return &lvgl_font_lineseedkr_th_60; }
 
 /**
  * @brief 获取 56 号 Material Symbols 字体
@@ -92,74 +93,59 @@ void SetObjectY(void* object, int32_t value) {
   lv_obj_set_y(static_cast<lv_obj_t*>(object), value);
 }
 
+// SurvivalOS: the lock screen shows the battery card from Settings > Power
+// Saving & Battery where upstream draws the clock, date and weekday. There is
+// only ever one lock screen, so its card is kept here with the screen it
+// belongs to rather than being looked up through the object tree.
+BatteryOverviewCard g_battery_card;
+lv_obj_t* g_battery_card_owner = nullptr;
+
 /**
- * @brief 创建锁屏时间日期区域
- * @param parent 父对象
- * @param options 锁屏视图配置
- * @return 创建成功返回对象指针，否则返回 nullptr
+ * @brief Forgets the battery card when its lock screen is deleted.
+ * @param event LVGL delete event of the lock screen.
  */
-lv_obj_t* CreateClockGroup(
-    lv_obj_t* parent, const LockScreenViewOptions& options) {
-  lv_obj_t* group = lv_obj_create(parent);
+void LockScreenDeleteEventCallback(lv_event_t* event) {
+  if (lv_event_get_target_obj(event) == g_battery_card_owner) {
+    g_battery_card = {};
+    g_battery_card_owner = nullptr;
+  }
+}
+
+/**
+ * @brief Creates the battery card in the place of the upstream clock group.
+ * @param lock_screen Lock screen object.
+ * @param options Lock screen view options.
+ * @return The transparent group holding the card, or nullptr.
+ */
+lv_obj_t* CreateBatteryGroup(
+    lv_obj_t* lock_screen, const LockScreenViewOptions& options) {
+  constexpr int kGroupHeight = 282;
+  constexpr int kCardSideInset = 14;
+  lv_obj_t* group = lv_obj_create(lock_screen);
   if (group == nullptr) {
     return nullptr;
   }
   lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(group, LV_OBJ_FLAG_CLICKABLE);
   MakeTransparent(group);
-  lv_obj_set_size(
-      group, options.screen_width - 2 * kLockHorizontalPadding, 282);
+  lv_obj_set_style_pad_all(group, 0, LV_PART_MAIN);
+  const int group_width = options.screen_width - 2 * kLockHorizontalPadding;
+  lv_obj_set_size(group, group_width, kGroupHeight);
   lv_obj_align(group, LV_ALIGN_TOP_LEFT, kLockHorizontalPadding, kLockClockTop);
 
-  lv_obj_t* time_label = CreateLabel(group, options.time_text,
-      lv_color_hex(theme::FixedColors().lock_screen_text), HomeTimeFont());
-  if (time_label == nullptr) {
+  BatteryOverviewCard card;
+  if (!CreateBatteryOverviewCard(
+          group, group_width - 2 * kCardSideInset, &card)) {
     lv_obj_delete(group);
     return nullptr;
   }
-  lv_obj_set_size(time_label, 400, 110);
-  lv_obj_set_style_text_opa(time_label, 245, LV_PART_MAIN);
-  lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  lv_obj_t* date_label = CreateLabel(group, options.date_text,
-      lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
-  if (date_label == nullptr) {
-    lv_obj_delete(group);
-    return nullptr;
-  }
-  lv_obj_set_size(date_label, 400, 70);
-  lv_obj_set_style_text_opa(date_label, 220, LV_PART_MAIN);
-  lv_obj_align(date_label, LV_ALIGN_TOP_LEFT, 10, 110);
-
-  lv_obj_t* week_label = CreateLabel(group, options.week_text,
-      lv_color_hex(theme::FixedColors().lock_screen_text), HomeDateFont());
-  if (week_label == nullptr) {
-    lv_obj_delete(group);
-    return nullptr;
-  }
-  lv_obj_set_size(week_label, 400, 50);
-  lv_obj_set_style_text_opa(week_label, 220, LV_PART_MAIN);
-  lv_obj_align(week_label, LV_ALIGN_TOP_LEFT, 10, 172);
+  lv_obj_set_pos(card.card, kCardSideInset,
+      (kGroupHeight - kBatteryOverviewCardHeight) / 2);
+  g_battery_card = card;
+  g_battery_card_owner = lock_screen;
+  lv_obj_add_event_cb(
+      lock_screen, LockScreenDeleteEventCallback, LV_EVENT_DELETE, nullptr);
   return group;
-}
-
-/**
- * @brief 获取锁屏时间日期区域
- * @param lock_screen 锁屏页面对象
- * @return 找到返回对象指针，否则返回 nullptr
- */
-lv_obj_t* LockClockGroup(lv_obj_t* lock_screen) {
-  if (lock_screen == nullptr) {
-    return nullptr;
-  }
-
-  const uint32_t child_count = lv_obj_get_child_count(lock_screen);
-  for (uint32_t index = 0; index < child_count; ++index) {
-    lv_obj_t* child = lv_obj_get_child(lock_screen, index);
-    if (child != nullptr && lv_obj_get_child_count(child) >= 3) {
-      return child;
-    }
-  }
-  return nullptr;
 }
 
 }  // namespace
@@ -184,7 +170,7 @@ lv_obj_t* CreateLockScreenView(
   CreateWallpaperObjects(
       lock_screen, options.screen_width, options.screen_height);
 
-  if (CreateClockGroup(lock_screen, options) == nullptr) {
+  if (CreateBatteryGroup(lock_screen, options) == nullptr) {
     lv_obj_delete(lock_screen);
     return nullptr;
   }
@@ -205,14 +191,20 @@ lv_obj_t* CreateLockScreenView(
 
 void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
     const char* date_text, const char* week_text) {
-  lv_obj_t* group = LockClockGroup(lock_screen);
-  if (group == nullptr || lv_obj_get_child_count(group) < 3) {
+  // The lock screen no longer shows a clock (see CreateBatteryGroup). The
+  // function stays so the callers upstream has need no change.
+  (void)lock_screen;
+  (void)time_text;
+  (void)date_text;
+  (void)week_text;
+}
+
+void UpdateLockScreenViewBattery(
+    lv_obj_t* lock_screen, const hal::BatteryManagementStatus& status) {
+  if (lock_screen == nullptr || lock_screen != g_battery_card_owner) {
     return;
   }
-
-  lv_label_set_text(lv_obj_get_child(group, 0), time_text);
-  lv_label_set_text(lv_obj_get_child(group, 1), date_text);
-  lv_label_set_text(lv_obj_get_child(group, 2), week_text);
+  UpdateBatteryOverviewCard(g_battery_card, status);
 }
 
 void SetLockScreenDragOffset(lv_obj_t* lock_screen, int offset) {
