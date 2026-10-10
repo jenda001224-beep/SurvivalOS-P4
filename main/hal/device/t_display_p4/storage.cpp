@@ -7,17 +7,31 @@
  */
 #include <sys/stat.h>
 
+#include <cstdio>
+#include <mutex>
+
+#include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "hal/device/t_display_p4/device.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
 
+namespace {
+
+// SurvivalOS: the card is now also mounted in the background at boot, so two
+// tasks can ask for it at the same moment; the driver's mount is not reentrant.
+std::mutex g_sd_mount_mutex;
+
+}  // namespace
+
 bool TDisplayP4Device::EnsureSdCardMounted() {
+  const std::lock_guard<std::mutex> lock(g_sd_mount_mutex);
   if (IsSdCardMounted()) {
     return true;
   }
 
+  const uint32_t log_mark = app::LogCaptureMark();
   bool result = driver_.InitSdmmc(device::sd::kBasePath, SDMMC_FREQ_52M);
   if (!result) {
     // SurvivalOS: a large card that cannot hold a clean high-speed link on this
@@ -32,12 +46,21 @@ bool TDisplayP4Device::EnsureSdCardMounted() {
   if (!result) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "InitSdmmc failed: no card, or the card is not FAT32/exFAT\n");
+    // Keep what ESP-IDF said about it, so the reason can be read on screen.
+    char reason[200] = {};
+    app::CollectLogLinesSince(log_mark, reason, sizeof(reason));
+    app::SetHardwareDiagnostic(app::HardwareDiagnostic::kSdCard,
+        reason[0] != '\0' ? reason : "mount failed, no detail logged");
     return false;
   }
+  app::SetHardwareDiagnostic(app::HardwareDiagnostic::kSdCard, "");
   return IsSdCardMounted();
 }
 
-bool TDisplayP4Device::UnmountSdCard() { return driver_.DeinitSdmmc(); }
+bool TDisplayP4Device::UnmountSdCard() {
+  const std::lock_guard<std::mutex> lock(g_sd_mount_mutex);
+  return driver_.DeinitSdmmc();
+}
 
 bool TDisplayP4Device::IsSdCardMounted() const {
   if (!driver_.IsSdmmcReady()) {

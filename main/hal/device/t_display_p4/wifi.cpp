@@ -13,6 +13,7 @@
 #include <memory>
 #include <new>
 
+#include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -538,18 +539,28 @@ void TDisplayP4Device::RunWifiInitTask() {
     return;
   }
 
+  const uint32_t log_mark = app::LogCaptureMark();
   const int result = InitializeWifiStack();
   if (result != ESP_OK) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "WiFi init failed: %s (%#X)\n",
         esp_err_to_name(static_cast<esp_err_t>(result)),
         static_cast<unsigned>(result));
+    // SurvivalOS: keep the reason where the UI can show it.
+    char detail[150] = {};
+    app::CollectLogLinesSince(log_mark, detail, sizeof(detail));
+    char reason[200] = {};
+    std::snprintf(reason, sizeof(reason), "%s (%#X)%s%s",
+        esp_err_to_name(static_cast<esp_err_t>(result)),
+        static_cast<unsigned>(result), detail[0] != '\0' ? "\n" : "", detail);
+    app::SetHardwareDiagnostic(app::HardwareDiagnostic::kWifi, reason);
     wifi_.init_task_running.store(false);
     SetWifiEnabled(false);
     SetWifiFailure(result);
     return;
   }
 
+  app::SetHardwareDiagnostic(app::HardwareDiagnostic::kWifi, "");
   wifi_.init_task_running.store(false);
   if (wifi_.stop_requested.load()) {
     SetWifiEnabled(false);

@@ -21,16 +21,10 @@ constexpr SettingsEntry kSettingsEntries[] = {
         .value = "LilyGo-AABB-5G",
         .icon = SettingsIcon::kWifi,
         .divider_before = true},
-    {.id = "bluetooth",
-        .title = "Bluetooth",
-        .value = "Off",
-        .icon = SettingsIcon::kBluetooth,
-        .divider_before = false},
-    {.id = "personal_hotspot",
-        .title = "Personal Hotspot",
-        .value = "Off",
-        .icon = SettingsIcon::kAntenna,
-        .divider_before = false},
+    // SurvivalOS: upstream lists "Bluetooth" and "Personal Hotspot" here, but
+    // both pages are mock-ups with nothing behind them (rows that cannot be
+    // tapped, a hard-coded password). They are left out until they do
+    // something; the pages themselves are still in the tree.
     {.id = "lock_screen",
         .title = "Lock Screen",
         .value = "",

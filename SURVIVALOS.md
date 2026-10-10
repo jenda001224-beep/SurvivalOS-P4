@@ -22,13 +22,18 @@ Flashing is reversible: the web flasher can also write LILYGO's factory image ba
 - Offline vector maps (PMTiles v3 + Mapbox Vector Tiles, rendered on the device)
   with GPS position and a hiking-trail overlay.
 - Photos, Voice Memo, photo and MJPEG/AVI video capture in Camera, WAV playback.
-- Camera viewfinder that fills the screen width with an unscaled centre crop of the
+- Camera viewfinder that covers the whole screen with an enlarged centre crop of the
   sensor instead of a letterboxed 16:9 strip.
 - Battery card (time remaining and charge) on the home page in place of the clock.
 - SD cards formatted as exFAT, and GPT partition tables, are readable
   (`components/fatfs` overrides ESP-IDF's component, where exFAT is off).
-- Compass: upstream's own compass app, backported from lilygobox-espidf `5db8622`
-  (it is not part of v1.1.2), with the IMU code it needs.
+- Upstream's compass app is backported from lilygobox-espidf `5db8622` (it is not
+  part of v1.1.2) together with the IMU code it needs, but it is currently not listed
+  on the home page.
+- The Control Center shows whether the SD card and the Wi-Fi co-processor came up
+  and, if not, what ESP-IDF logged about it, so a failure can be read off the screen.
+- Dark theme by default; timed haptic effects, including a faint buzz while a slider
+  is dragged.
 
 Sources live mostly in `main/survival/`, `main/ui/views/`, `main/ui/widgets/control_center.*`
 and `main/ui/input/system_gestures.*`.

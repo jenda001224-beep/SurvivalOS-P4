@@ -7,6 +7,8 @@
  */
 #include "ui/views/music_view.h"
 
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -2334,6 +2336,20 @@ bool StartMusicLibraryScan(MusicViewState* state) {
   for (const std::string& path : state->source_paths) {
     if (!path.empty()) {
       source_paths.push_back(path);
+    }
+  }
+  // SurvivalOS: with no folder chosen yet, play what is in /Music on the card
+  // instead of showing an empty library until one is added by hand.
+  if (source_paths.empty()) {
+    const char* base = session->storage->SdCardBasePath();
+    if (base != nullptr && base[0] != '\0') {
+      // Only when the folder is really there: scanning a missing folder is
+      // reported as a failed scan rather than as an empty library.
+      const std::string default_folder = std::string(base) + "/Music";
+      struct stat info = {};
+      if (stat(default_folder.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
+        source_paths.push_back(default_folder);
+      }
     }
   }
   if (session->scan_job != nullptr &&

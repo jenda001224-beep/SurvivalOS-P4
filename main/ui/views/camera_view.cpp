@@ -106,7 +106,9 @@ const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
  * @return true when a path could be built.
  */
 bool BuildPhotoPath(CameraViewState* state, char* buffer, size_t size) {
-  if (state->storage == nullptr || !state->storage->IsSdCardMounted()) {
+  // Mounts the card if nothing has yet; only checking would report "No SD
+  // card" for a perfectly good card that no other app happened to open first.
+  if (state->storage == nullptr || !state->storage->EnsureSdCardMounted()) {
     return false;
   }
   const char* base = state->storage->SdCardBasePath();

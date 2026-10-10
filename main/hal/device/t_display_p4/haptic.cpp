@@ -19,6 +19,9 @@ namespace {
 constexpr uint32_t kHapticPlaybackTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kHapticPlaybackTaskPriority = 3;
 constexpr uint32_t kVibrationPreviewPlayMs = 10;
+// SurvivalOS: upper bound for a timed effect, so a bad value cannot leave the
+// motor buzzing.
+constexpr uint32_t kVibrationMaximumPlayMs = 400;
 constexpr uint32_t kVibrationPreviewMinIntervalMs = 45;
 
 }  // namespace
@@ -42,6 +45,14 @@ bool TDisplayP4Device::ReadHapticWaveformCount(uint8_t* waveform_count) {
 
 bool TDisplayP4Device::PlayHapticWaveform(uint8_t waveform_sequence_number,
     uint8_t loop_count, uint8_t gain, bool auto_brake) {
+  return PlayHapticWaveformFor(waveform_sequence_number, loop_count, gain,
+      auto_brake, kVibrationPreviewPlayMs);
+}
+
+bool TDisplayP4Device::PlayHapticWaveformFor(uint8_t waveform_sequence_number,
+    uint8_t loop_count, uint8_t gain, bool auto_brake, uint32_t play_ms) {
+  haptic_.play_ms.store(
+      std::clamp<uint32_t>(play_ms, 1, kVibrationMaximumPlayMs));
   haptic_.waveform_sequence_number.store(waveform_sequence_number);
   haptic_.loop_count.store(std::clamp<uint8_t>(loop_count, 1, 16));
   haptic_.gain.store(gain);
@@ -91,6 +102,8 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
   const uint8_t loop_count = haptic_.loop_count.load();
   const uint8_t gain = haptic_.gain.load();
   const bool auto_brake = haptic_.auto_brake.load();
+  // Read with the rest, so a later request cannot stretch or cut this one.
+  const uint32_t play_ms = haptic_.play_ms.load();
   LogMessage(LogLevel::kDebug, __FILE__, __LINE__,
       "Aw86224 vibration playback: sequence=%u loop=%u gain=%u auto_brake=%u\n",
       static_cast<unsigned int>(sequence),
@@ -136,7 +149,7 @@ void TDisplayP4Device::RunHapticPlaybackTask() {
     return;
   }
 
-  vTaskDelay(pdMS_TO_TICKS(kVibrationPreviewPlayMs));
+  vTaskDelay(pdMS_TO_TICKS(play_ms));
 
   if (!driver_.SetAw86224Standby()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,

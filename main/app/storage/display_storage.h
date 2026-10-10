@@ -25,7 +25,9 @@ struct DisplayPreferences {
   // 锁屏页面是否允许双击触摸屏亮屏和熄屏。
   bool lock_screen_double_tap_to_turn_screen_on_and_off = true;
   // 系统界面是否使用深色主题。
-  bool dark_theme_enabled = false;
+  // SurvivalOS: dark theme out of the box (upstream defaults to light). Only
+  // affects a device with no saved display settings, i.e. a clean install.
+  bool dark_theme_enabled = true;
 };
 
 /**

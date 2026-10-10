@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <functional>
 
 #include "lvgl.h"
@@ -33,6 +34,9 @@ struct ControlCenterConfig {
   std::function<void(bool enabled)> set_silent_mode;
   // Locks the screen straight from the panel.
   std::function<void()> request_screen_lock;
+  // Writes a short plain-text summary of the SD card and the Wi-Fi chip,
+  // including why either failed, for the status area under the sliders.
+  std::function<void(char* buffer, size_t buffer_size)> describe_hardware;
 };
 
 // Pull-down panel that lives on the LVGL top layer, above every app view.
@@ -178,6 +182,7 @@ class ControlCenter final {
   lv_obj_t* panel_ = nullptr;
   lv_obj_t* brightness_slider_ = nullptr;
   lv_obj_t* volume_slider_ = nullptr;
+  lv_obj_t* hardware_label_ = nullptr;
   ToggleButton wifi_toggle_;
   ToggleButton bluetooth_toggle_;
   ToggleButton silent_toggle_;

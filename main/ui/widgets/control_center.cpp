@@ -43,6 +43,10 @@ constexpr int kToggleMaximumSize = 112;
 constexpr int kToggleRowGap = 24;
 constexpr int kSliderHeight = 300;
 constexpr int kSliderGap = 20;
+// Room under the sliders for the SD card / Wi-Fi status text: four lines.
+constexpr int kHardwareStatusGap = 18;
+constexpr int kHardwareStatusHeight = 112;
+constexpr uint32_t kHardwareStatusColor = 0xAEAEB2;
 constexpr int kSliderIconBottomMargin = 22;
 
 constexpr uint32_t kOpenAnimationMs = 260;
@@ -111,7 +115,7 @@ bool ControlCenter::Init(const ControlCenterConfig& config) {
       std::clamp(toggle_size, kToggleMinimumSize, kToggleMaximumSize);
   panel_top_margin_ = kPanelTopMargin;
   panel_height_ = kPanelPadding + toggle_size + kToggleRowGap + kSliderHeight +
-      kPanelPadding;
+      kHardwareStatusGap + kHardwareStatusHeight + kPanelPadding;
 
   panel_ = lv_obj_create(layer);
   if (panel_ == nullptr) {
@@ -170,6 +174,22 @@ bool ControlCenter::Init(const ControlCenterConfig& config) {
     return false;
   }
 
+  // Plain text on purpose: it exists so that a failure reason can be read off
+  // the screen without a serial cable. It only changes when the panel opens.
+  hardware_label_ = lv_label_create(panel_);
+  if (hardware_label_ != nullptr) {
+    lv_obj_set_pos(hardware_label_, kPanelPadding,
+        slider_y + kSliderHeight + kHardwareStatusGap);
+    lv_obj_set_size(hardware_label_, panel_width - 2 * kPanelPadding,
+        kHardwareStatusHeight);
+    lv_label_set_long_mode(hardware_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(
+        hardware_label_, &lvgl_font_google_sans_flex_22, LV_PART_MAIN);
+    lv_obj_set_style_text_color(
+        hardware_label_, lv_color_hex(kHardwareStatusColor), LV_PART_MAIN);
+    lv_label_set_text(hardware_label_, "");
+  }
+
   Refresh();
   return true;
 }
@@ -186,6 +206,7 @@ void ControlCenter::Destroy() {
   backdrop_ = nullptr;
   brightness_slider_ = nullptr;
   volume_slider_ = nullptr;
+  hardware_label_ = nullptr;
   wifi_toggle_ = {};
   bluetooth_toggle_ = {};
   silent_toggle_ = {};
@@ -341,6 +362,11 @@ void ControlCenter::Refresh() {
     ApplyToggleState(&silent_toggle_, config_.get_silent_mode());
   }
   ApplyToggleState(&lock_toggle_, false);
+  if (hardware_label_ != nullptr && config_.describe_hardware) {
+    char text[420] = {};
+    config_.describe_hardware(text, sizeof(text));
+    lv_label_set_text(hardware_label_, text);
+  }
 }
 
 void ControlCenter::ApplyToggleState(ToggleButton* toggle, bool active) {
@@ -476,6 +502,9 @@ void ControlCenter::SliderChangedCallback(lv_event_t* event) {
 
   const int value = std::clamp(
       static_cast<int>(lv_slider_get_value(target)), 0, 100);
+  // A faint buzz for as long as the slider keeps moving. The haptic driver
+  // spaces these out by itself, so this can fire on every change.
+  PlayUiHapticEffect(HapticEffect::kSliderMove);
   if (target == self->brightness_slider_ &&
       self->config_.set_brightness_percent) {
     self->config_.set_brightness_percent(value);

@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "app/app_catalog.h"
+#include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "app/network_monitor.h"
 #include "app/storage/bluetooth_storage.h"
@@ -21,6 +22,7 @@
 #include "app/storage/input_method_storage.h"
 #include "app/storage/sound_storage.h"
 #include "app/storage/wifi_storage.h"
+#include "hal/providers/storage_provider.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/wifi_provider.h"
 #include "hal/providers/keyboard_expansion_provider.h"
@@ -1648,6 +1650,41 @@ bool UiManager::InitializeShellGestures() {
     if (screen_lock_callback_) {
       screen_lock_callback_();
     }
+  };
+  config.describe_hardware = [this](char* buffer, size_t buffer_size) {
+    if (buffer == nullptr || buffer_size == 0) {
+      return;
+    }
+    // Deliberately only reads state: asking for a mount here would freeze the
+    // panel while the card is probed.
+    char sd_reason[200] = {};
+    app::ReadHardwareDiagnostic(
+        app::HardwareDiagnostic::kSdCard, sd_reason, sizeof(sd_reason));
+    const bool sd_mounted =
+        storage_provider_ != nullptr && storage_provider_->IsSdCardMounted();
+    char wifi_text[240] = "off";
+    hal::WifiStatus wifi_status;
+    if (wifi_provider_ != nullptr &&
+        wifi_provider_->ReadWifiStatus(&wifi_status)) {
+      char wifi_reason[200] = {};
+      app::ReadHardwareDiagnostic(
+          app::HardwareDiagnostic::kWifi, wifi_reason, sizeof(wifi_reason));
+      if (wifi_status.got_ip) {
+        std::snprintf(wifi_text, sizeof(wifi_text), "connected to %s",
+            wifi_status.ssid);
+      } else if (wifi_status.init_task_running) {
+        std::snprintf(wifi_text, sizeof(wifi_text), "starting...");
+      } else if (wifi_status.driver_initialized) {
+        std::snprintf(wifi_text, sizeof(wifi_text), "chip OK, not connected");
+      } else if (wifi_status.start_failed || wifi_reason[0] != '\0') {
+        std::snprintf(wifi_text, sizeof(wifi_text), "FAILED %s",
+            wifi_reason[0] != '\0' ? wifi_reason : "(no detail)");
+      }
+    }
+    std::snprintf(buffer, buffer_size, "SD card: %s%s%s\nWi-Fi: %s",
+        sd_mounted ? "OK" : "not mounted",
+        !sd_mounted && sd_reason[0] != '\0' ? " - " : "",
+        !sd_mounted ? sd_reason : "", wifi_text);
   };
 
   const bool control_center_ready = control_center_.Init(config);

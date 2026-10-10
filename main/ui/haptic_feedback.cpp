@@ -27,6 +27,9 @@ struct HapticEffectMapping {
   uint8_t loop_count;
   int gain_percent;
   bool auto_brake;
+  // How long the motor is left running. Around 10 ms is a click; from roughly
+  // 25 ms up it is felt as a vibration.
+  uint32_t play_ms;
 };
 
 // kRam12k041230_235 holds exactly four waveforms (its address table lists four
@@ -34,22 +37,26 @@ struct HapticEffectMapping {
 // rejects any other sequence number and the effect is then silently dropped,
 // so every mapping below has to stay within 1..4.
 constexpr uint8_t kRamLibraryWaveformCount = 4;
+// Loop count that keeps repeating the waveform until play_ms is over.
+constexpr uint8_t kLoopUntilStopped = 16;
 
 constexpr HapticEffectMapping kEffectMappings[] = {
     /* kSelection     */ {.sequence = 1, .loop_count = 1, .gain_percent = 55,
-        .auto_brake = true},
+        .auto_brake = true, .play_ms = 10},
     /* kImpactLight   */ {.sequence = 1, .loop_count = 1, .gain_percent = 80,
-        .auto_brake = true},
+        .auto_brake = true, .play_ms = 10},
     /* kImpactMedium  */ {.sequence = 2, .loop_count = 1, .gain_percent = 100,
-        .auto_brake = true},
+        .auto_brake = true, .play_ms = 12},
     /* kImpactHeavy   */ {.sequence = 3, .loop_count = 1, .gain_percent = 100,
-        .auto_brake = true},
+        .auto_brake = true, .play_ms = 16},
     /* kGestureCommit */ {.sequence = 1, .loop_count = 1, .gain_percent = 70,
-        .auto_brake = true},
-    /* kSuccess       */ {.sequence = 2, .loop_count = 2, .gain_percent = 85,
-        .auto_brake = true},
-    /* kWarning       */ {.sequence = 3, .loop_count = 3, .gain_percent = 100,
-        .auto_brake = true},
+        .auto_brake = true, .play_ms = 10},
+    /* kSuccess       */ {.sequence = 2, .loop_count = kLoopUntilStopped,
+        .gain_percent = 80, .auto_brake = true, .play_ms = 45},
+    /* kWarning       */ {.sequence = 3, .loop_count = kLoopUntilStopped,
+        .gain_percent = 100, .auto_brake = true, .play_ms = 90},
+    /* kSliderMove    */ {.sequence = 1, .loop_count = kLoopUntilStopped,
+        .gain_percent = 28, .auto_brake = true, .play_ms = 28},
 };
 
 hal::HapticProvider* g_haptic_provider = nullptr;
@@ -110,8 +117,8 @@ void PlayUiHapticEffect(HapticEffect effect) {
       mapping.sequence >= 1 && mapping.sequence <= kRamLibraryWaveformCount
           ? mapping.sequence
           : 1;
-  g_haptic_provider->PlayHapticWaveform(
-      sequence, mapping.loop_count, gain, mapping.auto_brake);
+  g_haptic_provider->PlayHapticWaveformFor(
+      sequence, mapping.loop_count, gain, mapping.auto_brake, mapping.play_ms);
 }
 
 }  // namespace lilygo_box::ui

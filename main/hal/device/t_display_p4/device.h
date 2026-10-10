@@ -105,6 +105,13 @@ class TDisplayP4Device final : public ScreenProvider,
       uint8_t gain, bool auto_brake) override;
 
   /**
+   * @brief Plays a waveform for a chosen time (see HapticProvider).
+   */
+  bool PlayHapticWaveformFor(uint8_t waveform_sequence_number,
+      uint8_t loop_count, uint8_t gain, bool auto_brake,
+      uint32_t play_ms) override;
+
+  /**
    * @brief 播放 ES8311 扬声器音频提示
    * @param bytes_written 实际写入 I2S 的字节数输出地址
    * @return 播放成功返回 true，否则返回 false
@@ -1310,6 +1317,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint8_t> gain{255};
     // 是否启用自动制动
     std::atomic<bool> auto_brake{true};
+    // SurvivalOS: how long the motor runs before it is put back to standby.
+    std::atomic<uint32_t> play_ms{10};
     // 是否已经配置过 RAM 播放参数
     bool ram_playback_configured = false;
     // 已配置的 RAM 波形 sequence 编号
@@ -1392,13 +1401,19 @@ class TDisplayP4Device final : public ScreenProvider,
     // once complete, so the UI never has to wait for a frame in progress and
     // the preview task never has to wait for the UI's copy.
     std::unique_ptr<uint8_t, HeapCapsBufferDeleter> output_back_buffer;
-    // SurvivalOS: true when the preview is an unscaled centre crop of the
-    // sensor frame that fills the screen width (portrait), instead of the whole
-    // 16:9 frame shrunk to fit with black bars above and below.
+    // SurvivalOS: true when the preview is a centre crop of the sensor frame
+    // enlarged to cover the whole upright screen, instead of the whole 16:9
+    // frame shrunk to fit with black bars above and below.
     bool output_fill = false;
-    // Region of the sensor frame shown when output_fill is set.
+    // Region of the sensor frame shown when output_fill is set, the PPA scale
+    // in sixteenths that enlarges it, and where the result lands in the buffer.
     uint32_t input_crop_x = 0;
     uint32_t input_crop_y = 0;
+    uint32_t input_crop_width = 0;
+    uint32_t input_crop_height = 0;
+    uint32_t fill_scale_sixteenths = 16;
+    uint32_t fill_offset_x = 0;
+    uint32_t fill_offset_y = 0;
     // PPA 输出缓冲区长度
     size_t output_buffer_size = 0;
     // PPA 输出图像宽度

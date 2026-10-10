@@ -5,11 +5,11 @@
   "project": "lilygobox-espidf",
   "built": "Oct  7 2026 07:07:39",
   "idf": "v5.5.5",
-  "generated": "2026-10-07 08:01",
+  "generated": "2026-10-10 13:03",
   "image": "survivalos-p4.bin",
-  "size": 4726656,
-  "sha256": "cfdd72fa68d62ecb920de18bc2a5393c9c3c497bdd741fa4c3cd6c3c3fe07ca9",
-  "md5": "54f5093fecf2698eb84a1596ede81342",
+  "size": 4731120,
+  "sha256": "86da167b622125f193c28c64fd015c1b675c049de05609d4a6a8fd0633495931",
+  "md5": "97dfca6ce5284f3017bdff954b66820c",
   "chip": "ESP32-P4",
   "chip_id": 18,
   "min_chip_rev": 0,
@@ -21,5 +21,5 @@
     "otadata": 61440,
     "app": 131072
   },
-  "app_size": 4595584
+  "app_size": 4600048
 }

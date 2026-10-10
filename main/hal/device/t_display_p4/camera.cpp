@@ -600,27 +600,56 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   camera_preview_.output_width = output_screen_width;
   camera_preview_.output_height = output_screen_height;
   // SurvivalOS: with the screen upright, a landscape sensor frame scaled to
-  // fit is a thin strip between two large black bars. Show the centre of the
-  // frame at 1:1 instead: as wide as the screen and as tall as the sensor.
-  // Nothing is scaled, so it is also the sharpest and cheapest preview, and
-  // the buffer is barely more than half a screen. Sizes are rounded down to 16
-  // because photos and video are JPEG-encoded from this buffer in 16x16 blocks.
+  // fit is a thin strip between two large black bars. Cover the whole screen
+  // instead with the centre of the frame, enlarged just enough to reach the
+  // top and bottom edges. The price is field of view: an upright screen is
+  // roughly a quarter as wide as the sensor's 16:9 frame is, so that is the
+  // share of the frame's width that stays visible.
+  //
+  // The buffer is rounded down to multiples of 16 because photos and video
+  // are JPEG-encoded straight from it in 16x16 blocks. The PPA scales in
+  // sixteenths, so the factor is rounded up to the next sixteenth and the crop
+  // is the largest one that still lands inside the buffer.
   constexpr uint32_t kJpegBlockMask = ~15U;
+  constexpr uint32_t kPpaScaleUnit = 16;
   const uint32_t fill_width = output_screen_width & kJpegBlockMask;
-  const uint32_t fill_height =
-      std::min<uint32_t>(camera_preview_.frame_height, output_screen_height) &
-      kJpegBlockMask;
+  const uint32_t fill_height = output_screen_height & kJpegBlockMask;
   camera_preview_.output_fill = !output_rotated &&
       camera_preview_.frame_width > camera_preview_.frame_height &&
-      camera_preview_.frame_width >= fill_width && fill_width > 0 &&
-      fill_height > 0;
+      fill_width > 0 && fill_height > 0 &&
+      camera_preview_.frame_width > 0 && camera_preview_.frame_height > 0;
   if (camera_preview_.output_fill) {
-    camera_preview_.output_width = fill_width;
-    camera_preview_.output_height = fill_height;
-    camera_preview_.input_crop_x =
-        ((camera_preview_.frame_width - fill_width) / 2) & ~1U;
-    camera_preview_.input_crop_y =
-        ((camera_preview_.frame_height - fill_height) / 2) & ~1U;
+    const uint32_t scale_for_width =
+        (fill_width * kPpaScaleUnit + camera_preview_.frame_width - 1) /
+        camera_preview_.frame_width;
+    const uint32_t scale_for_height =
+        (fill_height * kPpaScaleUnit + camera_preview_.frame_height - 1) /
+        camera_preview_.frame_height;
+    const uint32_t scale = std::max<uint32_t>(
+        kPpaScaleUnit, std::max(scale_for_width, scale_for_height));
+    const uint32_t crop_width = std::min<uint32_t>(
+        camera_preview_.frame_width, (fill_width * kPpaScaleUnit / scale) & ~1U);
+    const uint32_t crop_height = std::min<uint32_t>(
+        camera_preview_.frame_height,
+        (fill_height * kPpaScaleUnit / scale) & ~1U);
+    const uint32_t scaled_width = crop_width * scale / kPpaScaleUnit;
+    const uint32_t scaled_height = crop_height * scale / kPpaScaleUnit;
+    camera_preview_.output_fill = crop_width > 0 && crop_height > 0 &&
+        scaled_width <= fill_width && scaled_height <= fill_height;
+    if (camera_preview_.output_fill) {
+      camera_preview_.output_width = fill_width;
+      camera_preview_.output_height = fill_height;
+      camera_preview_.fill_scale_sixteenths = scale;
+      camera_preview_.input_crop_width = crop_width;
+      camera_preview_.input_crop_height = crop_height;
+      camera_preview_.input_crop_x =
+          ((camera_preview_.frame_width - crop_width) / 2) & ~1U;
+      camera_preview_.input_crop_y =
+          ((camera_preview_.frame_height - crop_height) / 2) & ~1U;
+      // Rounding can leave the picture a pixel or two short of the buffer.
+      camera_preview_.fill_offset_x = (fill_width - scaled_width) / 2;
+      camera_preview_.fill_offset_y = (fill_height - scaled_height) / 2;
+    }
   }
   camera_preview_.output_width =
       std::max<uint32_t>(1, camera_preview_.output_width);
@@ -743,19 +772,22 @@ bool TDisplayP4Device::RenderCameraFrame(
   const uint32_t rotated_source_width = output_rotated ? height : width;
   const uint32_t rotated_source_height = output_rotated ? width : height;
   const float scale = fill
-      ? 1.0F
+      ? static_cast<float>(camera_preview_.fill_scale_sixteenths) / 16.0F
       : std::min(static_cast<float>(output_width) /
                      static_cast<float>(rotated_source_width),
             static_cast<float>(output_height) /
                 static_cast<float>(rotated_source_height));
-  const uint32_t scaled_width = fill ? output_width : std::max<uint32_t>(
+  const uint32_t scaled_width = std::max<uint32_t>(
       1, static_cast<uint32_t>(std::round(rotated_source_width * scale)));
-  const uint32_t scaled_height = fill ? output_height : std::max<uint32_t>(
+  const uint32_t scaled_height = std::max<uint32_t>(
       1, static_cast<uint32_t>(std::round(rotated_source_height * scale)));
-  const uint32_t output_offset_x =
-      output_width > scaled_width ? (output_width - scaled_width) / 2 : 0;
-  const uint32_t output_offset_y =
-      output_height > scaled_height ? (output_height - scaled_height) / 2 : 0;
+  const uint32_t output_offset_x = fill
+      ? camera_preview_.fill_offset_x
+      : output_width > scaled_width ? (output_width - scaled_width) / 2 : 0;
+  const uint32_t output_offset_y = fill
+      ? camera_preview_.fill_offset_y
+      : output_height > scaled_height ? (output_height - scaled_height) / 2
+                                      : 0;
   const size_t aligned_output_size = camera_preview_.output_buffer_size;
 #if defined(CONFIG_LILYGO_DEVICE_DRIVER_CAMERA_TYPE_OV5645)
   const ppa_srm_color_mode_t input_color_mode = PPA_SRM_COLOR_MODE_RGB565;
@@ -773,8 +805,8 @@ bool TDisplayP4Device::RenderCameraFrame(
       .buffer = buffer,
       .pic_width = width,
       .pic_height = height,
-      .block_width = fill ? output_width : width,
-      .block_height = fill ? output_height : height,
+      .block_width = fill ? camera_preview_.input_crop_width : width,
+      .block_height = fill ? camera_preview_.input_crop_height : height,
       .block_offset_x = fill ? camera_preview_.input_crop_x : 0,
       .block_offset_y = fill ? camera_preview_.input_crop_y : 0,
       .color_mode = input_color_mode,
@@ -800,8 +832,11 @@ bool TDisplayP4Device::RenderCameraFrame(
       .scale_y = scale,
       .mirror_y = driver_.screen_type() == device::ScreenType::kHi8561,
   };
+  // When filling, any uncovered pixel is a fixed border that only has to be
+  // blanked once per buffer; the fit-to-screen path keeps upstream's behaviour
+  // of clearing its bars on every frame.
   if (camera_preview_.clear_output_frames_remaining > 0 ||
-      output_offset_x > 0 || output_offset_y > 0) {
+      (!fill && (output_offset_x > 0 || output_offset_y > 0))) {
     std::memset(target, 0, camera_preview_.output_buffer_size);
     if (camera_preview_.clear_output_frames_remaining > 0) {
       --camera_preview_.clear_output_frames_remaining;

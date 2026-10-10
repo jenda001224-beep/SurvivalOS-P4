@@ -31,6 +31,9 @@ enum class HapticEffect {
   kSuccess,
   // Played when an action is refused or fails.
   kWarning,
+  // Faint, slightly longer vibration repeated while a slider is dragged, so
+  // the motion itself can be felt rather than only its end points.
+  kSliderMove,
 };
 
 /**

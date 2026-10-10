@@ -32,6 +32,28 @@ class HapticProvider {
    */
   virtual bool PlayHapticWaveform(uint8_t waveform_sequence_number,
       uint8_t loop_count, uint8_t gain, bool auto_brake) = 0;
+
+  /**
+   * @brief Plays a waveform for a chosen time instead of the default short tick.
+   *
+   * SurvivalOS addition. PlayHapticWaveform always cuts the motor after a few
+   * milliseconds, which makes every effect a click; this lets an effect run
+   * long enough to be felt as a vibration. Boards that do not override it fall
+   * back to the plain tick.
+   *
+   * @param waveform_sequence_number RAM waveform sequence number.
+   * @param loop_count Loop count, 1..16 (16 repeats until the time is up).
+   * @param gain Vibration gain, 0..255.
+   * @param auto_brake Whether to brake the motor when the waveform ends.
+   * @param play_ms How long to let the motor run before it is stopped.
+   * @return true when playback was started.
+   */
+  virtual bool PlayHapticWaveformFor(uint8_t waveform_sequence_number,
+      uint8_t loop_count, uint8_t gain, bool auto_brake, uint32_t play_ms) {
+    (void)play_ms;
+    return PlayHapticWaveform(
+        waveform_sequence_number, loop_count, gain, auto_brake);
+  }
 };
 
 }  // namespace lilygo_box::hal

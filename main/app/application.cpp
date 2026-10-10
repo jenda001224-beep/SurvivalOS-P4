@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <ctime>
 
+#include "app/diagnostics/hardware_diagnostics.h"
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
 #include "app/restart_loop_guard.h"
@@ -50,6 +51,11 @@ constexpr uint32_t kWifiAutoConnectFailureRetryMs = 30 * 1000;
 constexpr uint32_t kOtgMonitorPeriodMs = 200;
 constexpr uint32_t kOtgRestoreDelayMs = 500;
 constexpr uint32_t kStartupWifiAutoConnectTaskStackBytes = 8 * 1024;
+constexpr uint32_t kStartupSdCardMountTaskStackBytes = 8 * 1024;
+constexpr UBaseType_t kStartupSdCardMountTaskPriority = 2;
+constexpr uint32_t kStartupSdCardMountDelayMs = 3000;
+constexpr uint32_t kStartupSdCardMountWifiWaitMs = 20 * 1000;
+constexpr uint32_t kStartupSdCardMountPollMs = 250;
 constexpr UBaseType_t kStartupWifiAutoConnectTaskPriority = 3;
 constexpr uint32_t kScreenLockTaskStackBytes = 6 * 1024;
 constexpr UBaseType_t kScreenLockTaskPriority = 3;
@@ -390,6 +396,41 @@ void DoubleTapRecognizer::ExpireFirstTap(uint32_t now_ms) {
   }
 }
 
+struct StartupSdCardMountContext {
+  hal::StorageProvider* storage = nullptr;
+  hal::WifiProvider* wifi = nullptr;
+};
+StartupSdCardMountContext g_startup_sd_card_mount;
+
+/**
+ * @brief Mounts the SD card once, shortly after boot, off the UI thread.
+ * @param context Unused; the providers come from g_startup_sd_card_mount.
+ */
+void StartupSdCardMountTaskEntry(void* context) {
+  (void)context;
+  // Give the display and the launcher the first moments of the boot.
+  vTaskDelay(pdMS_TO_TICKS(kStartupSdCardMountDelayMs));
+  // The SD card and the Wi-Fi co-processor share one SDMMC controller. Let a
+  // Wi-Fi bring-up that started at boot finish first, rather than have two
+  // tasks initialise the controller at the same moment.
+  hal::WifiProvider* wifi = g_startup_sd_card_mount.wifi;
+  for (uint32_t waited_ms = 0;
+       wifi != nullptr && waited_ms < kStartupSdCardMountWifiWaitMs;
+       waited_ms += kStartupSdCardMountPollMs) {
+    hal::WifiStatus status;
+    if (!wifi->ReadWifiStatus(&status) || !status.init_task_running) {
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kStartupSdCardMountPollMs));
+  }
+  hal::StorageProvider* storage = g_startup_sd_card_mount.storage;
+  if (storage != nullptr && !storage->EnsureSdCardMounted()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "SD card was not mounted at boot\n");
+  }
+  vTaskDelete(nullptr);
+}
+
 /**
  * @brief 将系统本地时区设置为中国标准时间 UTC+8
  * @return 时区环境设置成功返回 true，否则返回 false
@@ -463,6 +504,10 @@ Application::Application()
     : device_provider_context_(hal::CreateDeviceProviderContext()) {}
 
 bool Application::Init() {
+  // SurvivalOS: from here on, keep what ESP-IDF logs when the SD card or the
+  // Wi-Fi chip fail to come up, so the reason can be shown on the device.
+  app::InstallLogCapture();
+
   if (!ConfigureChinaTimeZone()) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Configure China time zone failed\n");
@@ -789,6 +834,19 @@ bool Application::Init() {
       init_device_info.device_model_name != nullptr &&
       init_device_info.device_model_name[0] != '\0') {
     device_model_name = init_device_info.device_model_name;
+  }
+
+  // SurvivalOS: mount the SD card in the background right after boot. Upstream
+  // only mounts it when the Files or Music app asks; every other app then finds
+  // the card missing unless one of those two happened to run first.
+  g_startup_sd_card_mount.storage = device_provider_context_.storage;
+  g_startup_sd_card_mount.wifi = device_provider_context_.wifi;
+  if (device_provider_context_.storage != nullptr &&
+      xTaskCreate(StartupSdCardMountTaskEntry, "sd_mount",
+          kStartupSdCardMountTaskStackBytes, nullptr,
+          kStartupSdCardMountTaskPriority, nullptr) != pdPASS) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Create startup SD card mount task failed\n");
   }
 
   const BaseType_t screen_lock_task_result =

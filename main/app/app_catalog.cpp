@@ -14,7 +14,6 @@ constexpr AppEntry kHomeAppEntries[] = {
     {.id = "wikipedia", .title = "Wikipedia",
         .subtitle = "Offline encyclopaedia"},
     {.id = "maps", .title = "Maps", .subtitle = "Offline maps and GPS"},
-    {.id = "compass", .title = "Compass", .subtitle = "Magnetic heading"},
     {.id = "photos", .title = "Photos", .subtitle = "Photo and video library"},
     {.id = "voicememo", .title = "Voice Memo",
         .subtitle = "Record and play audio notes"},
