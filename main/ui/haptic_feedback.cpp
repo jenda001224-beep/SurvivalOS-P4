@@ -56,7 +56,7 @@ constexpr HapticEffectMapping kEffectMappings[] = {
     /* kWarning       */ {.sequence = 3, .loop_count = kLoopUntilStopped,
         .gain_percent = 100, .auto_brake = true, .play_ms = 90},
     /* kSliderMove    */ {.sequence = 1, .loop_count = kLoopUntilStopped,
-        .gain_percent = 28, .auto_brake = true, .play_ms = 28},
+        .gain_percent = 11, .auto_brake = true, .play_ms = 28},
 };
 
 hal::HapticProvider* g_haptic_provider = nullptr;

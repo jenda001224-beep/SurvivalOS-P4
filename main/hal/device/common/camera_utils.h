@@ -55,6 +55,14 @@ uint32_t StartupRemainingMs(TickType_t start_tick);
 bool IsRetryableIoError(int error);
 
 /**
+ * @brief SurvivalOS: whether the preview may fill the screen with a crop of
+ *        the frame. Switching it off falls back to the vendor's fit-to-screen
+ *        scaling; meant for telling the two paths apart when one misbehaves.
+ */
+bool PreviewFillAllowed();
+void SetPreviewFillAllowed(bool allowed);
+
+/**
  * @brief 判断 ESP Video 初始化错误是否适合重新上电重试
  * @param error ESP-IDF 错误值
  * @return 适合通过完整摄像头电源重启恢复返回 true

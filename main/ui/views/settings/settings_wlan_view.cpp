@@ -995,6 +995,170 @@ void WifiSavedNetworkDeleteClickedEventCallback(lv_event_t* event) {
   lv_event_stop_processing(event);
 }
 
+// SurvivalOS: card that offers to replace the factory ESP-AT firmware of the
+// Wi-Fi chip, and shows the progress of doing so. See
+// hal/device/t_display_p4/coprocessor.cpp for why that is needed.
+constexpr int kWifiChipCardPadding = 22;
+constexpr int kWifiChipCardGap = 12;
+constexpr int kWifiChipCardRadius = 26;
+constexpr int kWifiChipButtonHeight = 64;
+
+hal::WifiCoprocessorUpdateStage g_wifi_chip_last_stage =
+    hal::WifiCoprocessorUpdateStage::kIdle;
+
+bool ReadWifiChipStatus(
+    const AppViewConfig& config, hal::WifiCoprocessorStatus* status) {
+  *status = hal::WifiCoprocessorStatus();
+  return config.wifi != nullptr &&
+      config.wifi->ReadWifiCoprocessorStatus(status);
+}
+
+bool IsWifiChipUpdateRunning(hal::WifiCoprocessorUpdateStage stage) {
+  return stage != hal::WifiCoprocessorUpdateStage::kIdle &&
+      stage != hal::WifiCoprocessorUpdateStage::kDone &&
+      stage != hal::WifiCoprocessorUpdateStage::kFailed;
+}
+
+/**
+ * @brief Whether the WLAN page has anything to say about the Wi-Fi chip.
+ */
+bool ShouldShowWifiChipCard(const hal::WifiCoprocessorStatus& chip) {
+  return chip.firmware == hal::WifiCoprocessorFirmware::kEspAt ||
+      IsWifiChipUpdateRunning(chip.stage) ||
+      chip.stage == hal::WifiCoprocessorUpdateStage::kFailed;
+}
+
+void WifiChipUpdateClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->config.wifi == nullptr) {
+    return;
+  }
+  hal::WifiCoprocessorStatus chip;
+  ReadWifiChipStatus(state->config, &chip);
+  if (chip.stage == hal::WifiCoprocessorUpdateStage::kNeedsBootButton) {
+    state->config.wifi->ConfirmWifiCoprocessorBootButton();
+  } else if (!IsWifiChipUpdateRunning(chip.stage)) {
+    state->config.wifi->StartWifiCoprocessorUpdate(
+        hal::WifiCoprocessorUpdateMode::kInstall);
+  }
+  state->wifi_refresh_force = true;
+}
+
+/**
+ * @brief Creates the Wi-Fi chip card.
+ * @param height Receives the height the card ended up with.
+ */
+bool CreateWifiChipCard(lv_obj_t* parent, SettingsViewState* state,
+    const hal::WifiCoprocessorStatus& chip, int y, int width, int* height) {
+  lv_obj_t* card = lv_obj_create(parent);
+  if (card == nullptr) {
+    return false;
+  }
+  const int card_width = width - 2 * kWifiSidePadding;
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_width(card, card_width);
+  lv_obj_set_height(card, LV_SIZE_CONTENT);
+  lv_obj_set_pos(card, kWifiSidePadding, y);
+  lv_obj_set_style_bg_color(card,
+      lv_color_hex(SettingsThemeColors().surface_container_high),
+      LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(card, kWifiChipCardRadius, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(card, kWifiChipCardPadding, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(card, kWifiChipCardGap, LV_PART_MAIN);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+  const int text_width = card_width - 2 * kWifiChipCardPadding;
+
+  using Stage = hal::WifiCoprocessorUpdateStage;
+  const bool running = IsWifiChipUpdateRunning(chip.stage);
+  const bool waiting_for_button = chip.stage == Stage::kNeedsBootButton;
+  const char* title = "Wi-Fi chip needs an update";
+  char body[280] = {};
+  const char* button = "Update now";
+  if (waiting_for_button) {
+    title = "Hold the BOOT button";
+    std::snprintf(body, sizeof(body),
+        "Press and hold the small BOOT button of the Wi-Fi chip, tap "
+        "Continue, and let go after a second.");
+    button = "Continue";
+  } else if (running) {
+    title = "Updating the Wi-Fi chip";
+    if (chip.stage == Stage::kWriting) {
+      std::snprintf(body, sizeof(body),
+          "Writing... %u %%\nKeep the phone on. This takes about a minute.",
+          static_cast<unsigned>(chip.progress_percent));
+    } else {
+      std::snprintf(body, sizeof(body),
+          "%s\nKeep the phone on. This takes about a minute.",
+          chip.stage == Stage::kVerifying ? "Checking what was written..."
+                                          : "Preparing...");
+    }
+    button = nullptr;
+  } else if (chip.stage == Stage::kFailed) {
+    title = "Wi-Fi chip update failed";
+    std::snprintf(body, sizeof(body),
+        "%s\nNothing is lost: it can be tried again.", chip.detail);
+    button = "Try again";
+  } else {
+    std::snprintf(body, sizeof(body),
+        "The Wi-Fi chip still runs its factory firmware (%s), which this "
+        "system cannot use. Replacing it takes about a minute and is needed "
+        "only once. Keep the phone on while it runs.",
+        chip.detail[0] != '\0' ? chip.detail : "ESP-AT");
+  }
+
+  lv_obj_t* title_label = CreateLabel(card, title,
+      lv_color_hex(SettingsThemeColors().on_surface), Font28());
+  lv_obj_t* body_label = CreateLabel(card, body,
+      lv_color_hex(SettingsThemeColors().on_surface_variant), Font22());
+  if (title_label == nullptr || body_label == nullptr) {
+    return false;
+  }
+  lv_obj_set_width(title_label, text_width);
+  lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(body_label, text_width);
+  lv_label_set_long_mode(body_label, LV_LABEL_LONG_WRAP);
+
+  if (button != nullptr) {
+    lv_obj_t* button_object = lv_obj_create(card);
+    if (button_object == nullptr) {
+      return false;
+    }
+    lv_obj_remove_flag(button_object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(button_object, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(button_object, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_size(button_object, text_width, kWifiChipButtonHeight);
+    lv_obj_set_style_bg_color(button_object,
+        lv_color_hex(theme::FixedColors().action), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button_object, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button_object, kPressedOpacity, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(button_object, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(
+        button_object, kWifiChipButtonHeight / 2, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(button_object, 0, LV_PART_MAIN);
+    if (!AddPressCancelOnLeave(button_object)) {
+      return false;
+    }
+    lv_obj_add_event_cb(button_object, WifiChipUpdateClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+    lv_obj_t* button_label =
+        CreateLabel(button_object, button, lv_color_hex(0xFFFFFF), Font28());
+    if (button_label == nullptr) {
+      return false;
+    }
+    lv_obj_center(button_label);
+  }
+
+  lv_obj_update_layout(card);
+  *height = lv_obj_get_height(card);
+  return true;
+}
+
 /**
  * @brief WLAN 页面打开期间轮询 WiFi 状态并刷新内容
  * @param timer LVGL 定时器对象
@@ -1002,6 +1166,20 @@ void WifiSavedNetworkDeleteClickedEventCallback(lv_event_t* event) {
 void WifiRefreshTimerCallback(lv_timer_t* timer) {
   auto* state = static_cast<SettingsViewState*>(lv_timer_get_user_data(timer));
   UpdateWifiConnectTimeout(state);
+  if (state != nullptr) {
+    hal::WifiCoprocessorStatus chip;
+    ReadWifiChipStatus(state->config, &chip);
+    const bool just_finished =
+        chip.stage == hal::WifiCoprocessorUpdateStage::kDone &&
+        g_wifi_chip_last_stage != hal::WifiCoprocessorUpdateStage::kDone &&
+        g_wifi_chip_last_stage != hal::WifiCoprocessorUpdateStage::kIdle;
+    g_wifi_chip_last_stage = chip.stage;
+    if (just_finished &&
+        chip.firmware == hal::WifiCoprocessorFirmware::kHosted &&
+        state->wifi_enabled_requested) {
+      RequestWifiScan(state, true);
+    }
+  }
   if (state != nullptr && state->wifi_enabled_requested) {
     hal::WifiStatus status;
     hal::WifiScanStatus scan_status;
@@ -3175,6 +3353,18 @@ bool CreateWifiPageContent(
   }
   y += kWifiRowHeight;
 
+  hal::WifiCoprocessorStatus chip;
+  ReadWifiChipStatus(config, &chip);
+  if (ShouldShowWifiChipCard(chip)) {
+    int card_height = 0;
+    if (!CreateWifiChipCard(parent, state, chip, y, config.width,
+            &card_height)) {
+      return false;
+    }
+    // Nothing below applies until the chip can do Wi-Fi.
+    return true;
+  }
+
   if (!wifi_enabled) {
     y += 8;
     if (!CreateWifiDividerAt(parent, y, config.width)) {
@@ -3378,8 +3568,13 @@ void RefreshWifiPage(SettingsViewState* state, bool force) {
   ReadWifiSnapshots(state->config, &status, &scan_status);
   const app::InternetAccessState internet_state =
       app::NetworkMonitor::Instance().GetStatus().internet_state;
+  hal::WifiCoprocessorStatus chip;
+  ReadWifiChipStatus(state->config, &chip);
   const uint32_t refresh_key =
-      MakeWifiRefreshKey(status, scan_status, internet_state);
+      MakeWifiRefreshKey(status, scan_status, internet_state) ^
+      (static_cast<uint32_t>(chip.firmware) * 0x9E3779B1U) ^
+      (static_cast<uint32_t>(chip.stage) * 0x85EBCA6BU) ^
+      (static_cast<uint32_t>(chip.progress_percent) * 0xC2B2AE35U);
   if (!force && !state->wifi_refresh_force &&
       state->wifi_refresh_key == refresh_key) {
     return;

@@ -194,6 +194,14 @@ bool TDisplayP4Device::SetWifiEnabled(bool enabled) {
     return true;
   }
 
+  // SurvivalOS: with the factory firmware on the co-processor, or while it is
+  // being replaced, there is nothing to start; do not even power the chip.
+  if (wifi_coprocessor_.task_running.load() ||
+      wifi_coprocessor_.firmware.load() == WifiCoprocessorFirmware::kEspAt) {
+    SetWifiFailure(ESP_ERR_NOT_SUPPORTED);
+    return false;
+  }
+
   if (!driver_.SetEsp32c6PowerEnabled(true)) {
     SetWifiFailure(ESP_FAIL);
     return false;
@@ -539,6 +547,29 @@ void TDisplayP4Device::RunWifiInitTask() {
     return;
   }
 
+  // SurvivalOS: a failed ESP-Hosted start restarts the whole system, so a
+  // co-processor that still runs the factory ESP-AT firmware is caught here.
+  if (!EnsureWifiCoprocessorIsHosted()) {
+    WifiCoprocessorStatus coprocessor;
+    ReadWifiCoprocessorStatus(&coprocessor);
+    const bool factory_firmware =
+        coprocessor.firmware == WifiCoprocessorFirmware::kEspAt;
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "WiFi not started: %s\n",
+        factory_firmware ? "the co-processor runs ESP-AT, not ESP-Hosted"
+                         : "the co-processor did not answer");
+    app::SetHardwareDiagnostic(app::HardwareDiagnostic::kWifi,
+        factory_firmware
+            ? "Wi-Fi chip needs a one-time update:\nSettings > WLAN"
+            : "Wi-Fi chip does not answer");
+    // Nothing of the Wi-Fi stack exists yet, so there is nothing to tear
+    // down beyond the chip's power.
+    wifi_.init_task_running.store(false);
+    driver_.SetEsp32c6PowerEnabled(false);
+    SetWifiFailure(ESP_ERR_NOT_SUPPORTED);
+    return;
+  }
+
   const uint32_t log_mark = app::LogCaptureMark();
   const int result = InitializeWifiStack();
   if (result != ESP_OK) {
@@ -561,6 +592,7 @@ void TDisplayP4Device::RunWifiInitTask() {
   }
 
   app::SetHardwareDiagnostic(app::HardwareDiagnostic::kWifi, "");
+  MarkWifiCoprocessorVerified();
   wifi_.init_task_running.store(false);
   if (wifi_.stop_requested.load()) {
     SetWifiEnabled(false);

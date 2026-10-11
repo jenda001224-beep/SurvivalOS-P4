@@ -47,6 +47,26 @@ and `main/ui/input/system_gestures.*`.
   straight to EN and DTR straight to GPIO35. A serial port left open with RTS
   asserted holds the chip in reset.
 - The ESP32-C6 co-processor is Bluetooth LE only, so there is no Bluetooth audio.
+- The ESP32-C6 of early units runs **ESP-AT**, not the ESP-Hosted firmware this
+  system (and LilygoBox) needs, so Wi-Fi does not come up on them. The phone
+  replaces it by itself: `main/hal/device/t_display_p4/coprocessor.cpp` asks ESP-AT
+  to force a download boot (`AT+SYSREG` on `LP_AON_SYS_CFG`, then `AT+RST`) and
+  writes the vendor's ESP-Hosted image (`assets/coprocessor/`) over SDIO with
+  esp-serial-flasher. Settings → WLAN offers it when needed. LILYGO's own route
+  is a USB-UART adapter on the "C6 UART" connector.
+- The camera driver's `VIDIOC_DQBUF` blocks regardless of `O_NONBLOCK`, and it
+  cannot complete a buffer while the other of its two is held: never dequeue a
+  second frame before giving the first one back.
+
+## Diagnostics over USB
+
+With the device on its P4.U port, lines starting with `svos` on the serial
+console (115200 baud) are commands; `svos help` lists them. They report what the
+device sees (`svos status`), the CPU share of each task (`svos tasks`), and start
+the few actions whose logs matter: Wi-Fi on/off/scan, an SD card write-and-read
+test, the camera preview, and identifying or updating the Wi-Fi chip
+(`svos c6 identify | rehearse | install`). See
+`main/app/diagnostics/serial_commands.cpp`.
 
 ## Build
 
@@ -70,4 +90,6 @@ non-blank otadata, bad checksum).
 GPL-3.0, like the firmware it is derived from; see [LICENSE](./LICENSE). The upstream
 README follows unchanged in [README.md](./README.md). Third-party parts keep their own
 licences: zstd (`components/zstd`, BSD), FatFs and its ESP-IDF glue
-(`components/fatfs`, BSD-style and Apache-2.0), esptool-js (`docs/vendor`, Apache-2.0).
+(`components/fatfs`, BSD-style and Apache-2.0), esptool-js (`docs/vendor`, Apache-2.0),
+esp-serial-flasher (`components/esp-serial-flasher`, Apache-2.0) and the ESP-Hosted
+firmware for the ESP32-C6 as built by LILYGO (`assets/coprocessor`, Apache-2.0).

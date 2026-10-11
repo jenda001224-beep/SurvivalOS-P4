@@ -205,17 +205,10 @@ void TDisplayP4Device::RunCameraPreviewTask() {
       continue;
     }
 
-    // SurvivalOS: if a second frame has finished in the meantime, show that
-    // one and hand the older buffer straight back. Displaying frames in
-    // arrival order would otherwise keep the preview one frame behind whenever
-    // rendering is slower than the sensor.
-    v4l2_buffer newer = {};
-    newer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    newer.memory = V4L2_MEMORY_MMAP;
-    if (ioctl(camera_preview_.video_fd, VIDIOC_DQBUF, &newer) == 0) {
-      ioctl(camera_preview_.video_fd, VIDIOC_QBUF, &buffer);
-      buffer = newer;
-    }
+    // SurvivalOS: do not try to dequeue a second, newer frame here. DQBUF
+    // blocks until a frame is done (the driver ignores O_NONBLOCK), and with
+    // two buffers the driver cannot finish the other one while this task
+    // still holds the first: both sides would wait for each other forever.
 
     const bool frame_valid = buffer.index < kCameraBufferCount &&
                              buffer.bytesused > 0 &&
@@ -614,7 +607,8 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   constexpr uint32_t kPpaScaleUnit = 16;
   const uint32_t fill_width = output_screen_width & kJpegBlockMask;
   const uint32_t fill_height = output_screen_height & kJpegBlockMask;
-  camera_preview_.output_fill = !output_rotated &&
+  camera_preview_.output_fill = camera_utils::PreviewFillAllowed() &&
+      !output_rotated &&
       camera_preview_.frame_width > camera_preview_.frame_height &&
       fill_width > 0 && fill_height > 0 &&
       camera_preview_.frame_width > 0 && camera_preview_.frame_height > 0;
@@ -650,6 +644,15 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
       camera_preview_.fill_offset_x = (fill_width - scaled_width) / 2;
       camera_preview_.fill_offset_y = (fill_height - scaled_height) / 2;
     }
+  }
+  if (camera_preview_.output_fill) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Camera preview fills %lux%lu from a %lux%lu crop at (%lu,%lu), "
+        "scale %lu/16\n",
+        camera_preview_.output_width, camera_preview_.output_height,
+        camera_preview_.input_crop_width, camera_preview_.input_crop_height,
+        camera_preview_.input_crop_x, camera_preview_.input_crop_y,
+        camera_preview_.fill_scale_sixteenths);
   }
   camera_preview_.output_width =
       std::max<uint32_t>(1, camera_preview_.output_width);
@@ -843,6 +846,13 @@ bool TDisplayP4Device::RenderCameraFrame(
     }
   }
   if (!camera_preview_.ppa.Transform(input, output, transform)) {
+    // Once is enough: a failure here repeats with every frame.
+    static bool failure_logged = false;
+    if (!failure_logged) {
+      failure_logged = true;
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "Camera frame scaling failed\n");
+    }
     return false;
   }
   // Publishing the frame is only a pointer swap, so the lock is held for

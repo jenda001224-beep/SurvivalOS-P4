@@ -95,6 +95,54 @@ struct WifiStatus {
   char ssid[33] = {};
 };
 
+// SurvivalOS: which firmware answers on the wireless co-processor. Early
+// T-Display-P4 units carry ESP-AT there, which ESP-Hosted cannot talk to; the
+// phone can replace it with the ESP-Hosted firmware it carries.
+enum class WifiCoprocessorFirmware : uint8_t {
+  // Not looked at yet.
+  kUnknown,
+  // ESP-Hosted network adapter: Wi-Fi works.
+  kHosted,
+  // Factory ESP-AT: needs the one-time update.
+  kEspAt,
+  // The chip did not answer at all.
+  kSilent,
+};
+
+enum class WifiCoprocessorUpdateStage : uint8_t {
+  kIdle,
+  kChecking,
+  kEnteringDownloadMode,
+  // Waiting for the user to hold the co-processor's BOOT button.
+  kNeedsBootButton,
+  kConnecting,
+  kWriting,
+  kVerifying,
+  kDone,
+  kFailed,
+};
+
+enum class WifiCoprocessorUpdateMode : uint8_t {
+  // Only find out which firmware is there.
+  kIdentify,
+  // Go all the way into the co-processor's download mode and read its flash
+  // size, but write nothing.
+  kRehearse,
+  // Write the bundled firmware.
+  kInstall,
+};
+
+struct WifiCoprocessorStatus {
+  WifiCoprocessorFirmware firmware = WifiCoprocessorFirmware::kUnknown;
+  WifiCoprocessorUpdateStage stage = WifiCoprocessorUpdateStage::kIdle;
+  // Whether this build carries a firmware image for the co-processor.
+  bool update_available = false;
+  // Progress of the write, 0-100.
+  uint8_t progress_percent = 0;
+  // Firmware version of the co-processor, or what went wrong.
+  char detail[120] = {};
+};
+
 class WifiProvider {
  public:
   virtual ~WifiProvider() = default;
@@ -157,6 +205,45 @@ class WifiProvider {
    * @return 读取成功返回 true，否则返回 false
    */
   virtual bool ReadWifiStatus(WifiStatus* status) = 0;
+
+  /**
+   * @brief Reads what is known about the co-processor's firmware and the
+   *        progress of an update. Never touches the hardware.
+   * @return false when the board has no such service
+   */
+  virtual bool ReadWifiCoprocessorStatus(WifiCoprocessorStatus* status) {
+    (void)status;
+    return false;
+  }
+
+  /**
+   * @brief Identifies the co-processor's firmware and, unless it is only a
+   *        check, replaces ESP-AT with the bundled ESP-Hosted firmware.
+   * @param mode What to do; see WifiCoprocessorUpdateMode
+   * @return true when the background task was started
+   */
+  virtual bool StartWifiCoprocessorUpdate(WifiCoprocessorUpdateMode mode) {
+    (void)mode;
+    return false;
+  }
+
+  /**
+   * @brief Tells an update waiting in kNeedsBootButton that the button is
+   *        being held, so it can reset the co-processor.
+   */
+  virtual bool ConfirmWifiCoprocessorBootButton() { return false; }
+
+  /**
+   * @brief Diagnostics: sends AT commands to a co-processor that runs ESP-AT
+   *        and logs the replies.
+   * @param script Commands separated by ';'. "!connect" tries to reach the
+   *        ROM download mode at that point, "!wait" pauses half a second.
+   * @return true when the background task was started
+   */
+  virtual bool StartWifiCoprocessorExperiment(const char* script) {
+    (void)script;
+    return false;
+  }
 };
 
 }  // namespace lilygo_box::hal

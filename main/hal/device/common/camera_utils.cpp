@@ -7,11 +7,15 @@
  */
 #include "hal/device/common/camera_utils.h"
 
+#include <atomic>
 #include <cerrno>
 
 #include "freertos/task.h"
 
 namespace lilygo_box::hal::camera_utils {
+namespace {
+std::atomic<bool> g_preview_fill_allowed{true};
+}  // namespace
 
 static_assert(kStartupTimeoutMs >= kSensorReadyPollIntervalMs);
 
@@ -75,6 +79,12 @@ ppa_srm_rotation_angle_t ToPreviewPpaRotation(int angle) {
     default:
       return PPA_SRM_ROTATION_ANGLE_0;
   }
+}
+
+bool PreviewFillAllowed() { return g_preview_fill_allowed.load(); }
+
+void SetPreviewFillAllowed(bool allowed) {
+  g_preview_fill_allowed.store(allowed);
 }
 
 }  // namespace lilygo_box::hal::camera_utils

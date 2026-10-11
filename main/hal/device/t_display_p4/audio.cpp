@@ -26,7 +26,17 @@ namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
 namespace {
 
-constexpr uint8_t kAudioVolumeMax = 192;
+// SurvivalOS: ES8311 DAC volume register, 0.5 dB per step with 191 = 0 dB.
+// The slider used to run linearly from the bottom of the register, which put
+// three quarters of its travel below what the small speaker makes audible.
+// It now spans -30 dB to +6 dB; the 6 dB above full scale buy loudness for
+// quiet material at the cost of clipping the peaks of loud one.
+constexpr int kAudioVolumeRegisterAtOnePercent = 131;
+constexpr int kAudioVolumeRegisterAtFull = 203;
+// SurvivalOS: digital microphone gain on top of the 30 dB analogue stage. The
+// vendor's 18 dB left speech peaking near -18 dBFS.
+constexpr auto kMicrophoneDigitalGain =
+    cpp_bus_driver::Es8311::AdcGain::kGain30db;
 constexpr size_t kSpeakerPlaybackChunkBytes = 4096;
 constexpr uint32_t kSpeakerPlaybackTaskStackBytes = 4 * 1024;
 constexpr uint32_t kAudioFilePlaybackTaskStackBytes = 8 * 1024;
@@ -40,8 +50,9 @@ constexpr uint32_t kMicrophoneCaptureTaskStackBytes = 4 * 1024;
 constexpr UBaseType_t kMicrophoneCaptureTaskPriority = 3;
 constexpr size_t kMicrophoneReadSampleCount = 128;
 constexpr uint32_t kMicrophoneReadRetryDelayMs = 10;
-constexpr int kMicrophoneAverageFullScale = 1000;
-constexpr int kMicrophonePeakFullScale = 4000;
+// SurvivalOS: four times the vendor's values, matching the 12 dB more gain.
+constexpr int kMicrophoneAverageFullScale = 4000;
+constexpr int kMicrophonePeakFullScale = 16000;
 constexpr int kMicrophoneLevelRiseDivisor = 4;
 constexpr int kMicrophoneLevelFallDivisor = 8;
 // The codec runs the capture path with the same slot layout as playback, so a
@@ -249,8 +260,12 @@ bool TDisplayP4Device::SetSpeakerVolumePercent(int percent) {
     return false;
   }
 
-  const uint8_t volume =
-      device_utils::PercentToUint8Value(percent, kAudioVolumeMax);
+  const int clamped_percent = std::clamp(percent, 0, 100);
+  const uint8_t volume = clamped_percent == 0
+      ? 0
+      : static_cast<uint8_t>(kAudioVolumeRegisterAtOnePercent +
+            (kAudioVolumeRegisterAtFull - kAudioVolumeRegisterAtOnePercent) *
+                (clamped_percent - 1) / 99);
   const bool result = driver_.chip().es8311->SetDacVolume(volume);
   UpdateAudioCodecOperatingMode();
   return result;
@@ -569,7 +584,14 @@ bool TDisplayP4Device::UpdateAudioCodecOperatingMode() {
     mode = microphone_.adc_to_dac_enabled.load() ? OperatingMode::kDuplex
                                                  : OperatingMode::kCapture;
   }
-  return driver_.SetEs8311OperatingMode(mode);
+  if (!driver_.SetEs8311OperatingMode(mode)) {
+    return false;
+  }
+  if (capture_active && driver_.IsEs8311Ready()) {
+    // Set again on every mode change in case the driver restored its default.
+    driver_.chip().es8311->SetAdcGain(kMicrophoneDigitalGain);
+  }
+  return true;
 }
 
 bool TDisplayP4Device::Configure(

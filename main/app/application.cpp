@@ -14,6 +14,7 @@
 #include <ctime>
 
 #include "app/diagnostics/hardware_diagnostics.h"
+#include "app/diagnostics/serial_commands.h"
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
 #include "app/restart_loop_guard.h"
@@ -882,6 +883,13 @@ bool Application::Init() {
           "Create volume button task failed\n");
     }
   }
+
+  app::SerialCommandTargets serial_targets;
+  serial_targets.wifi = device_provider_context_.wifi;
+  serial_targets.storage = device_provider_context_.storage;
+  serial_targets.camera = device_provider_context_.camera;
+  serial_targets.battery = device_provider_context_.battery_management;
+  app::StartSerialCommands(serial_targets);
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
       "LilygoBox initialized on %s\n", device_model_name);

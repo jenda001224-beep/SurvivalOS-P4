@@ -609,6 +609,12 @@ class TDisplayP4Device final : public ScreenProvider,
    */
   bool ReadWifiStatus(WifiStatus* status) override;
 
+  // SurvivalOS: co-processor firmware service, see wifi_provider.h.
+  bool ReadWifiCoprocessorStatus(WifiCoprocessorStatus* status) override;
+  bool StartWifiCoprocessorUpdate(WifiCoprocessorUpdateMode mode) override;
+  bool ConfirmWifiCoprocessorBootButton() override;
+  bool StartWifiCoprocessorExperiment(const char* script) override;
+
   /**
    * @brief 确保 SD 卡已经挂载到文件系统
    * @return 挂载操作是否成功
@@ -1233,6 +1239,41 @@ class TDisplayP4Device final : public ScreenProvider,
   void SetWifiFailure(int error);
 
   /**
+   * @brief Background task behind StartWifiCoprocessorUpdate.
+   * @param context Device object
+   */
+  static void WifiCoprocessorTaskEntry(void* context);
+
+  /**
+   * @brief Identifies the co-processor's firmware and optionally replaces it.
+   */
+  void RunWifiCoprocessorTask();
+
+  /**
+   * @brief Runs the diagnostic AT script of StartWifiCoprocessorExperiment.
+   */
+  void RunWifiCoprocessorExperiment();
+
+  /**
+   * @brief Makes sure the co-processor runs firmware ESP-Hosted can talk to
+   *        before ESP-Hosted is started, because a failed start restarts the
+   *        whole system.
+   * @return false when it runs ESP-AT and Wi-Fi must not be started
+   */
+  bool EnsureWifiCoprocessorIsHosted();
+
+  /**
+   * @brief Remembers that ESP-Hosted came up, so later starts skip the check.
+   */
+  void MarkWifiCoprocessorVerified();
+
+  /**
+   * @brief Publishes the stage and message of the co-processor service.
+   */
+  void SetWifiCoprocessorStage(
+      WifiCoprocessorUpdateStage stage, const char* detail);
+
+  /**
    * @brief 处理 hosted WiFi STA 连接事件
    * @param arg 设备对象指针
    * @param event_base 事件类型
@@ -1736,7 +1777,25 @@ class TDisplayP4Device final : public ScreenProvider,
   // 以太网运行状态，供事件回调和 UI 查询共享
   EthernetState ethernet_;
   // WiFi 运行状态，供事件回调和 UI 查询共享
+  struct WifiCoprocessorState {
+    std::atomic<WifiCoprocessorFirmware> firmware{
+        WifiCoprocessorFirmware::kUnknown};
+    std::atomic<WifiCoprocessorUpdateStage> stage{
+        WifiCoprocessorUpdateStage::kIdle};
+    std::atomic<WifiCoprocessorUpdateMode> mode{
+        WifiCoprocessorUpdateMode::kIdentify};
+    std::atomic<uint8_t> progress_percent{0};
+    std::atomic<bool> task_running{false};
+    std::atomic<bool> boot_button_confirmed{false};
+    // Guards detail.
+    portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
+    char detail[120] = {};
+    // Diagnostic AT script; only read by the task it was started for.
+    char experiment[200] = {};
+  };
+
   WifiState wifi_;
+  WifiCoprocessorState wifi_coprocessor_;
   // WiFi 获取时间测试状态，保存测试流程和进入前配置
   WifiTimeTestState wifi_time_test_;
   // 板载射频和两颗键盘扩展射频分别维护会话，同一芯片仅保留一条配置。

@@ -46,3 +46,18 @@ CONFIG_ESP_HOSTED_CP_TARGET_ESP32C6=y
 # The vendor release images are built the same way (header: min 0.0, max 1.99).
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_0=y
+
+# SurvivalOS: the phone writes the ESP32-C6 firmware itself over SDIO with its
+# own port (main/hal/device/common/coprocessor_sdio.cpp), so none of the
+# library's ports are built.
+CONFIG_SERIAL_FLASHER_PORT_UART=n
+CONFIG_SERIAL_FLASHER_PORT_SDIO=n
+CONFIG_SERIAL_FLASHER_LOG_LEVEL_INFO=y
+
+# SurvivalOS: "svos tasks" on the serial port reports per-task CPU load.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# SurvivalOS: 30 frames per second instead of 100. Drawing the 568x1232 panel
+# takes longer than 10 ms anyway, so the higher rate only kept the CPU busy.
+CONFIG_LV_DEF_REFR_PERIOD=33
