@@ -60,6 +60,8 @@ struct CameraViewState {
   lv_obj_t* capture_toast = nullptr;
   lv_obj_t* mode_button = nullptr;
   lv_obj_t* mode_label = nullptr;
+  lv_obj_t* zoom_button = nullptr;
+  lv_obj_t* zoom_label = nullptr;
   lv_obj_t* recording_label = nullptr;
   lv_timer_t* recording_timer = nullptr;
   bool video_mode = false;
@@ -294,6 +296,34 @@ void ModeClickedEventCallback(lv_event_t* event) {
   state->video_mode = !state->video_mode;
   ApplyShutterState(state);
   ShowCaptureToast(state, state->video_mode ? "Video" : "Photo");
+}
+
+/**
+ * @brief Steps the preview through its zoom levels, wide to close and round.
+ *
+ * The sensor is landscape and the screen portrait, so the closer steps trade
+ * field of view for a bigger viewfinder. Not while recording: the video's
+ * frame size is fixed when it starts.
+ * @param event LVGL event.
+ */
+void ZoomClickedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<CameraViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->camera == nullptr || state->recording) {
+    return;
+  }
+  const int count = state->camera->CameraPreviewZoomStepCount();
+  if (count < 2) {
+    return;
+  }
+  const int next = (state->camera->GetCameraPreviewZoomStep() + 1) % count;
+  if (!state->camera->SetCameraPreviewZoomStep(next)) {
+    return;
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  if (state->zoom_label != nullptr) {
+    lv_label_set_text(state->zoom_label,
+        state->camera->CameraPreviewZoomLabel(next));
+  }
 }
 
 /**
@@ -923,6 +953,35 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
       lv_obj_set_style_text_font(state->mode_label,
           &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
       lv_obj_center(state->mode_label);
+    }
+  }
+
+  if (state->camera != nullptr &&
+      state->camera->CameraPreviewZoomStepCount() > 1) {
+    state->zoom_button = lv_button_create(container);
+  }
+  if (state->zoom_button != nullptr) {
+    // Mirrors the mode button on the other side of the shutter.
+    lv_obj_set_size(state->zoom_button, kModeButtonSize, kModeButtonSize);
+    lv_obj_align(state->zoom_button, LV_ALIGN_BOTTOM_LEFT, 46,
+        -kShutterBottomMargin - 18);
+    lv_obj_set_style_radius(
+        state->zoom_button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        state->zoom_button, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(state->zoom_button, 120, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->zoom_button, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(state->zoom_button, ZoomClickedEventCallback,
+        LV_EVENT_CLICKED, state);
+    state->zoom_label = lv_label_create(state->zoom_button);
+    if (state->zoom_label != nullptr) {
+      lv_label_set_text(state->zoom_label,
+          state->camera->CameraPreviewZoomLabel(
+              state->camera->GetCameraPreviewZoomStep()));
+      lv_obj_set_style_text_color(
+          state->zoom_label, lv_color_hex(0xFFD60A), LV_PART_MAIN);
+      lv_obj_set_style_text_font(state->zoom_label, Font22(), LV_PART_MAIN);
+      lv_obj_center(state->zoom_label);
     }
   }
 

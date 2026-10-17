@@ -34,6 +34,10 @@ enum class HapticEffect {
   // Faint, slightly longer vibration repeated while a slider is dragged, so
   // the motion itself can be felt rather than only its end points.
   kSliderMove,
+  // Barely-there tick for marking a cell in a puzzle.
+  kPuzzleTap,
+  // Even fainter tick for each cell crossed while marking by dragging.
+  kPuzzleDrag,
 };
 
 /**

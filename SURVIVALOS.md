@@ -38,6 +38,16 @@ Flashing is reversible: the web flasher can also write LILYGO's factory image ba
 Sources live mostly in `main/survival/`, `main/ui/views/`, `main/ui/widgets/control_center.*`
 and `main/ui/input/system_gestures.*`.
 
+## Petdoku
+
+A logic puzzle in place of the planned ClassiCube: an N x N grid (6 to 10) split
+into N regions, one pet in every row, column and region, none touching. Puzzles
+are generated on the device (`main/games/petdoku_engine.*`): a random solution,
+regions grown around it, reshaped until no second solution exists, and kept only
+when a solver that never guesses can finish it. `hosttest/petdoku/` in the project
+folder checks uniqueness independently by search. The puzzle number is the seed,
+so "No. 12" is the same puzzle everywhere.
+
 ## Hardware facts that matter when building
 
 - The V1.0 board carries **ESP32-P4 silicon revision 1.x**. ESP-IDF >= 5.5.3 targets

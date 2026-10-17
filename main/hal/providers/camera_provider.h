@@ -119,6 +119,29 @@ class CameraProvider {
     (void)status;
     return false;
   }
+
+  /**
+   * @brief SurvivalOS: steps from the widest view to the closest crop that
+   *        the upright preview offers; 1 means there is no zoom.
+   */
+  virtual int CameraPreviewZoomStepCount() const { return 1; }
+
+  /** @brief The step in use, 0 being the widest. */
+  virtual int GetCameraPreviewZoomStep() const { return 0; }
+
+  /**
+   * @brief Chooses a step; a running preview follows with its next frame.
+   */
+  virtual bool SetCameraPreviewZoomStep(int step) {
+    (void)step;
+    return false;
+  }
+
+  /** @brief Short label for a step, such as "2x". */
+  virtual const char* CameraPreviewZoomLabel(int step) const {
+    (void)step;
+    return "1x";
+  }
 };
 
 }  // namespace lilygo_box::hal

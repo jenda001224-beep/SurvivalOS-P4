@@ -892,13 +892,13 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
-  if (IsId(app_entry.id, "classicube")) {
+  if (IsId(app_entry.id, "petdoku")) {
     return {
         .symbol = icon::kVideogameAsset,
         .image = nullptr,
-        .shell_color = 0x5B8C3A,
-        .surface_color = 0xB5DC93,
-        .pressed_shell_color = 0x49702E,
+        .shell_color = 0x3A4A5E,
+        .surface_color = 0xB4C3D6,
+        .pressed_shell_color = 0x2D3A4A,
         .image_offset_x = 0,
         .image_offset_y = 0,
     };

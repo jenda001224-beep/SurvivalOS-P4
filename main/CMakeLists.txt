@@ -5,6 +5,7 @@ set(src_dirs
     "app/storage"
     "audio"
     "base"
+    "games"
     "hal"
     "hal/ppa"
     "hal/providers"

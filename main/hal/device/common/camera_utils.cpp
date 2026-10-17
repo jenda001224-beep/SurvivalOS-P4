@@ -14,7 +14,7 @@
 
 namespace lilygo_box::hal::camera_utils {
 namespace {
-std::atomic<bool> g_preview_fill_allowed{true};
+std::atomic<PreviewZoom> g_preview_zoom{PreviewZoom::kNormal};
 }  // namespace
 
 static_assert(kStartupTimeoutMs >= kSensorReadyPollIntervalMs);
@@ -81,10 +81,34 @@ ppa_srm_rotation_angle_t ToPreviewPpaRotation(int angle) {
   }
 }
 
-bool PreviewFillAllowed() { return g_preview_fill_allowed.load(); }
+PreviewZoom GetPreviewZoom() { return g_preview_zoom.load(); }
 
-void SetPreviewFillAllowed(bool allowed) {
-  g_preview_fill_allowed.store(allowed);
+void SetPreviewZoom(PreviewZoom zoom) { g_preview_zoom.store(zoom); }
+
+PreviewZoom NextPreviewZoom(PreviewZoom zoom) {
+  switch (zoom) {
+    case PreviewZoom::kWide:
+      return PreviewZoom::kNormal;
+    case PreviewZoom::kNormal:
+      return PreviewZoom::kFill;
+    case PreviewZoom::kFill:
+      break;
+  }
+  return PreviewZoom::kWide;
+}
+
+const char* PreviewZoomLabel(PreviewZoom zoom) {
+  // With the 1920x1080 sensor mode the three crops are 1792, 994 and 470
+  // pixels wide.
+  switch (zoom) {
+    case PreviewZoom::kWide:
+      return "1\xC3\x97";
+    case PreviewZoom::kNormal:
+      return "2\xC3\x97";
+    case PreviewZoom::kFill:
+      break;
+  }
+  return "4\xC3\x97";
 }
 
 }  // namespace lilygo_box::hal::camera_utils

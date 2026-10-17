@@ -22,6 +22,8 @@
 namespace lilygo_box::hal {
 namespace {
 
+constexpr uint32_t kTouchReadPeriodMs = 10;
+
 constexpr uint16_t kKeyboardRepeatIntervalMs = 50;
 constexpr int64_t kHardwareEdgeHintLifetimeMs = 200;
 
@@ -131,6 +133,12 @@ bool LvglPort::Init(
   lv_indev_set_read_cb(input_device_, TouchReadCallback);
   lv_indev_set_display(input_device_, lvgl_display_);
   lv_indev_set_long_press_repeat_time(input_device_, kKeyboardRepeatIntervalMs);
+  // SurvivalOS: the screen refreshes every 33 ms, but touches are read every
+  // 10 ms as before, so a tap reaches the app without waiting for a frame.
+  lv_timer_t* touch_timer = lv_indev_get_read_timer(input_device_);
+  if (touch_timer != nullptr) {
+    lv_timer_set_period(touch_timer, kTouchReadPeriodMs);
+  }
 
   if (keyboard_ != nullptr) {
     keyboard_group_ = lv_group_create();

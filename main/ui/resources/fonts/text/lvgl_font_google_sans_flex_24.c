@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font assets/font/google_sans_flex/GoogleSansFlex_24pt-Regular.ttf -r 0x20-0x7E,0xB0,0xB7,0x2022 --format lvgl --lv-font-name lvgl_font_google_sans_flex_24 -o main/ui/resources/fonts/text/lvgl_font_google_sans_flex_24.c --lv-include lvgl.h
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font assets/font/google_sans_flex/GoogleSansFlex_24pt-Regular.ttf -r 0x20-0x7E,0xB0,0xB7,0xD7,0x2022 --format lvgl --lv-font-name lvgl_font_google_sans_flex_24 -o main/ui/resources/fonts/text/lvgl_font_google_sans_flex_24.c --lv-include lvgl.h
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -1354,6 +1354,16 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
     /* U+00B7 "·" */
     0x1, 0x0, 0x5f, 0xe1, 0xaf, 0xf5, 0x4e, 0xd1,
 
+    /* U+00D7 "×" */
+    0x5, 0x30, 0x0, 0x0, 0x7, 0x1, 0xff, 0x30,
+    0x0, 0xb, 0xf7, 0x6, 0xff, 0x30, 0xb, 0xfc,
+    0x0, 0x6, 0xff, 0x3b, 0xfc, 0x0, 0x0, 0x6,
+    0xff, 0xfc, 0x0, 0x0, 0x0, 0xd, 0xff, 0x30,
+    0x0, 0x0, 0xb, 0xfd, 0xfe, 0x30, 0x0, 0xb,
+    0xfc, 0x6, 0xfe, 0x30, 0xb, 0xfc, 0x0, 0x6,
+    0xfe, 0x31, 0xdc, 0x0, 0x0, 0x6, 0xf5, 0x1,
+    0x0, 0x0, 0x0, 0x2, 0x0,
+
     /* U+2022 "•" */
     0x0, 0x25, 0x20, 0x0, 0x5f, 0xff, 0x70, 0xe,
     0xff, 0xff, 0x10, 0xff, 0xff, 0xf2, 0xc, 0xff,
@@ -1464,7 +1474,8 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 8748, .adv_w = 214, .box_w = 12, .box_h = 4, .ofs_x = 1, .ofs_y = 6},
     {.bitmap_index = 8772, .adv_w = 125, .box_w = 8, .box_h = 7, .ofs_x = 0, .ofs_y = 11},
     {.bitmap_index = 8800, .adv_w = 91, .box_w = 4, .box_h = 4, .ofs_x = 1, .ofs_y = 6},
-    {.bitmap_index = 8808, .adv_w = 146, .box_w = 7, .box_h = 6, .ofs_x = 1, .ofs_y = 5}
+    {.bitmap_index = 8808, .adv_w = 214, .box_w = 11, .box_h = 11, .ofs_x = 1, .ofs_y = 2},
+    {.bitmap_index = 8869, .adv_w = 146, .box_w = 7, .box_h = 6, .ofs_x = 1, .ofs_y = 5}
 };
 
 /*---------------------
@@ -1472,7 +1483,7 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
  *--------------------*/
 
 static const uint16_t unicode_list_1[] = {
-    0x0, 0x7, 0x1f72
+    0x0, 0x7, 0x27, 0x1f72
 };
 
 /*Collect the unicode lists and glyph_id offsets*/
@@ -1484,7 +1495,7 @@ static const lv_font_fmt_txt_cmap_t cmaps[] =
     },
     {
         .range_start = 176, .range_length = 8051, .glyph_id_start = 96,
-        .unicode_list = unicode_list_1, .glyph_id_ofs_list = NULL, .list_length = 3, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
+        .unicode_list = unicode_list_1, .glyph_id_ofs_list = NULL, .list_length = 4, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
     }
 };
 
@@ -1706,7 +1717,7 @@ static const uint8_t kern_pair_glyph_ids[] =
     21, 61,
     21, 94,
     21, 96,
-    21, 98,
+    21, 99,
     22, 4,
     22, 5,
     22, 6,
@@ -1766,7 +1777,7 @@ static const uint8_t kern_pair_glyph_ids[] =
     24, 64,
     24, 94,
     24, 96,
-    24, 98,
+    24, 99,
     25, 3,
     25, 8,
     25, 13,
@@ -1894,7 +1905,8 @@ static const uint8_t kern_pair_glyph_ids[] =
     96, 24,
     96, 25,
     98, 18,
-    98, 24
+    99, 18,
+    99, 24
 };
 
 /* Kerning between the respective left and right glyphs
@@ -1950,7 +1962,7 @@ static const int8_t kern_pair_values[] =
     -6, 10, 0, 0, 0, 5, -4, -4,
     -4, 0, 0, -6, -4, 4, 0, 0,
     -5, 4, -4, -6, -9, 0, 9, 0,
-    -26, -1, -18, 9, -4, -8, -6
+    -26, -1, -18, 9, -4, 0, -8, -6
 };
 
 /*Collect the kern pair's data in one place*/
@@ -1958,7 +1970,7 @@ static const lv_font_fmt_txt_kern_pair_t kern_pairs =
 {
     .glyph_ids = kern_pair_glyph_ids,
     .values = kern_pair_values,
-    .pair_cnt = 399,
+    .pair_cnt = 400,
     .glyph_ids_size = 0
 };
 
@@ -2023,3 +2035,4 @@ lv_font_t lvgl_font_google_sans_flex_24 = {
 
 
 #endif /*#if LVGL_FONT_GOOGLE_SANS_FLEX_24*/
+

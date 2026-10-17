@@ -55,12 +55,32 @@ uint32_t StartupRemainingMs(TickType_t start_tick);
 bool IsRetryableIoError(int error);
 
 /**
- * @brief SurvivalOS: whether the preview may fill the screen with a crop of
- *        the frame. Switching it off falls back to the vendor's fit-to-screen
- *        scaling; meant for telling the two paths apart when one misbehaves.
+ * @brief SurvivalOS: how much of the sensor frame the upright preview shows.
+ *
+ * The sensor is landscape and the screen portrait, so every step towards the
+ * whole frame costs viewfinder height.
  */
-bool PreviewFillAllowed();
-void SetPreviewFillAllowed(bool allowed);
+enum class PreviewZoom : uint8_t {
+  // (Nearly) the whole frame, as a strip across the screen.
+  kWide,
+  // The full height of the frame, in a roughly square viewfinder.
+  kNormal,
+  // A crop of the centre that covers the whole screen.
+  kFill,
+};
+
+PreviewZoom GetPreviewZoom();
+void SetPreviewZoom(PreviewZoom zoom);
+
+/**
+ * @brief The zoom a tap on the zoom button leads to: wide, normal, fill, wide.
+ */
+PreviewZoom NextPreviewZoom(PreviewZoom zoom);
+
+/**
+ * @brief Short label for the zoom button, as a magnification of kWide.
+ */
+const char* PreviewZoomLabel(PreviewZoom zoom);
 
 /**
  * @brief 判断 ESP Video 初始化错误是否适合重新上电重试

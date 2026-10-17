@@ -16,6 +16,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "games/petdoku_engine.h"
 #include "hal/device/common/camera_utils.h"
 #include "sdkconfig.h"
 
@@ -25,7 +26,7 @@ namespace {
 constexpr uart_port_t kConsoleUart =
     static_cast<uart_port_t>(CONFIG_ESP_CONSOLE_UART_NUM);
 constexpr int kUartRxBufferBytes = 512;
-constexpr uint32_t kTaskStackBytes = 6 * 1024;
+constexpr uint32_t kTaskStackBytes = 12 * 1024;
 constexpr UBaseType_t kTaskPriority = 2;
 constexpr size_t kLineLength = 220;
 constexpr char kPrefix[] = "svos";
@@ -35,6 +36,7 @@ constexpr uint32_t kWifiScanTimeoutMs = 15000;
 constexpr uint32_t kWifiScanPollMs = 250;
 constexpr size_t kSdTestBlockBytes = 32 * 1024;
 constexpr size_t kSdTestBlockCount = 32;
+constexpr uint32_t kPetdokuBenchSeeds = 8;
 
 SerialCommandTargets g_targets;
 
@@ -264,6 +266,30 @@ void TestSdCard() {
       static_cast<long long>((read_us - written_us) / 1000));
 }
 
+/**
+ * @brief Times puzzle generation for every Petdoku size on this CPU.
+ */
+void BenchPetdoku() {
+  for (int size = games::kPetdokuMinSize; size <= games::kPetdokuMaxSize;
+       ++size) {
+    int64_t worst_us = 0;
+    int64_t total_us = 0;
+    int generated = 0;
+    for (uint32_t seed = 1; seed <= kPetdokuBenchSeeds; ++seed) {
+      games::PetdokuPuzzle puzzle;
+      const int64_t started_us = esp_timer_get_time();
+      generated += games::GeneratePetdoku(size, seed, 800, &puzzle) ? 1 : 0;
+      const int64_t spent_us = esp_timer_get_time() - started_us;
+      total_us += spent_us;
+      worst_us = spent_us > worst_us ? spent_us : worst_us;
+    }
+    std::printf("svos: petdoku %dx%d: %d/%lu, avg %lld ms, worst %lld ms\n",
+        size, size, generated, static_cast<unsigned long>(kPetdokuBenchSeeds),
+        static_cast<long long>(total_us / kPetdokuBenchSeeds / 1000),
+        static_cast<long long>(worst_us / 1000));
+  }
+}
+
 void PrintHelp() {
   std::printf(
       "svos: commands\n"
@@ -271,13 +297,13 @@ void PrintHelp() {
       "svos:   svos tasks             CPU share of each task over 2 s\n"
       "svos:   svos wifi on|off|scan  switch Wi-Fi, list networks in range\n"
       "svos:   svos sd test           write, read back and delete a test file\n"
+      "svos:   svos petdoku           time puzzle generation per size\n"
       "svos:   svos c6 identify       which firmware the Wi-Fi chip runs\n"
       "svos:   svos c6 rehearse       reach its download mode, write nothing\n"
       "svos:   svos c6 install        replace ESP-AT with ESP-Hosted\n"
       "svos:   svos c6 boot           BOOT button is being held\n"
       "svos:   svos c6 at A;B;...     send AT commands (no spaces), log replies\n"
-      "svos:   svos camera on|fit|off start (fit = vendor scaling) or stop the "
-      "preview\n");
+      "svos:   svos camera on|off|wide|normal|fill  preview and its zoom\n");
 }
 
 void StartCoprocessor(hal::WifiCoprocessorUpdateMode mode) {
@@ -320,6 +346,8 @@ void RunCommand(char* line) {
   } else if (std::strcmp(command, "wifi") == 0 && g_targets.wifi != nullptr &&
              std::strcmp(argument, "scan") == 0) {
     ScanWifi();
+  } else if (std::strcmp(command, "petdoku") == 0) {
+    BenchPetdoku();
   } else if (std::strcmp(command, "sd") == 0 && g_targets.storage != nullptr) {
     TestSdCard();
   } else if (std::strcmp(command, "wifi") == 0 && g_targets.wifi != nullptr) {
@@ -350,11 +378,17 @@ void RunCommand(char* line) {
     }
   } else if (std::strcmp(command, "camera") == 0 &&
              g_targets.camera != nullptr) {
-    if (std::strcmp(argument, "on") == 0 ||
-        std::strcmp(argument, "fit") == 0) {
-      // "fit" selects the vendor's fit-to-screen scaling for this start.
-      hal::camera_utils::SetPreviewFillAllowed(
-          std::strcmp(argument, "on") == 0);
+    using hal::camera_utils::PreviewZoom;
+    const bool wide = std::strcmp(argument, "wide") == 0;
+    const bool normal = std::strcmp(argument, "normal") == 0;
+    const bool fill = std::strcmp(argument, "fill") == 0;
+    if (wide || normal || fill) {
+      // Takes effect with the next frame when the preview is already running.
+      hal::camera_utils::SetPreviewZoom(wide     ? PreviewZoom::kWide
+                                        : normal ? PreviewZoom::kNormal
+                                                 : PreviewZoom::kFill);
+    }
+    if (std::strcmp(argument, "on") == 0 || wide || normal || fill) {
       std::printf("svos: camera start -> %s\n",
           g_targets.camera->StartCameraPreview() ? "accepted" : "refused");
     } else {

@@ -148,25 +148,32 @@ bool TDisplayP4Device::StopCameraPreview() {
 }
 
 bool TDisplayP4Device::GetCameraPreviewFrameInfo(CameraPreviewFrameInfo* info) {
-  if (info == nullptr || camera_preview_.output_buffer == nullptr ||
+  if (info == nullptr || camera_preview_.output_mutex == nullptr ||
       camera_preview_.frame_sequence.load() == 0) {
     return false;
   }
-
-  info->data_size = camera_preview_.output_buffer_size;
+  // SurvivalOS: the geometry changes with the zoom, so it is read under the
+  // same lock the preview task holds while switching it.
+  if (xSemaphoreTake(camera_preview_.output_mutex, pdMS_TO_TICKS(20)) !=
+      pdTRUE) {
+    return false;
+  }
+  const bool ready = camera_preview_.output_buffer != nullptr;
+  info->data_size = camera_preview_.output_frame_size;
   info->width = camera_preview_.output_width;
   info->height = camera_preview_.output_height;
   info->stride = camera_preview_.output_stride;
   info->bits_per_pixel = ScreenBitsPerPixel();
   info->sequence = camera_preview_.frame_sequence.load();
-  return true;
+  xSemaphoreGive(camera_preview_.output_mutex);
+  return ready;
 }
 
 bool TDisplayP4Device::CopyCameraPreviewFrame(
     uint8_t* buffer, size_t buffer_size, CameraPreviewFrameInfo* info) {
   if (buffer == nullptr || info == nullptr ||
-      !GetCameraPreviewFrameInfo(info) || buffer_size < info->data_size ||
-      camera_preview_.output_mutex == nullptr) {
+      camera_preview_.output_mutex == nullptr ||
+      camera_preview_.frame_sequence.load() == 0) {
     return false;
   }
 
@@ -174,10 +181,19 @@ bool TDisplayP4Device::CopyCameraPreviewFrame(
       pdTRUE) {
     return false;
   }
-  std::memcpy(buffer, camera_preview_.output_buffer.get(), info->data_size);
-  info->sequence = camera_preview_.frame_sequence.load();
+  const bool copied = camera_preview_.output_buffer != nullptr &&
+                      buffer_size >= camera_preview_.output_frame_size;
+  if (copied) {
+    info->data_size = camera_preview_.output_frame_size;
+    info->width = camera_preview_.output_width;
+    info->height = camera_preview_.output_height;
+    info->stride = camera_preview_.output_stride;
+    info->bits_per_pixel = ScreenBitsPerPixel();
+    std::memcpy(buffer, camera_preview_.output_buffer.get(), info->data_size);
+    info->sequence = camera_preview_.frame_sequence.load();
+  }
   xSemaphoreGive(camera_preview_.output_mutex);
-  return true;
+  return copied;
 }
 
 void TDisplayP4Device::CameraPreviewTaskEntry(void* context) {
@@ -214,6 +230,10 @@ void TDisplayP4Device::RunCameraPreviewTask() {
                              buffer.bytesused > 0 &&
                              (buffer.flags & V4L2_BUF_FLAG_DONE) != 0 &&
                              (buffer.flags & V4L2_BUF_FLAG_ERROR) == 0;
+    if (static_cast<uint8_t>(camera_utils::GetPreviewZoom()) !=
+        camera_preview_.applied_zoom) {
+      ApplyCameraPreviewGeometry();
+    }
     if (frame_valid) {
       if (camera_preview_.warmup_frames_remaining > 0) {
         // 传感器刚上电时丢弃少量预热帧，避免未稳定像素短暂显示。
@@ -590,78 +610,10 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
       output_rotated ? ScreenHeight() : ScreenWidth();
   const uint32_t output_screen_height =
       output_rotated ? ScreenWidth() : ScreenHeight();
-  camera_preview_.output_width = output_screen_width;
-  camera_preview_.output_height = output_screen_height;
-  // SurvivalOS: with the screen upright, a landscape sensor frame scaled to
-  // fit is a thin strip between two large black bars. Cover the whole screen
-  // instead with the centre of the frame, enlarged just enough to reach the
-  // top and bottom edges. The price is field of view: an upright screen is
-  // roughly a quarter as wide as the sensor's 16:9 frame is, so that is the
-  // share of the frame's width that stays visible.
-  //
-  // The buffer is rounded down to multiples of 16 because photos and video
-  // are JPEG-encoded straight from it in 16x16 blocks. The PPA scales in
-  // sixteenths, so the factor is rounded up to the next sixteenth and the crop
-  // is the largest one that still lands inside the buffer.
-  constexpr uint32_t kJpegBlockMask = ~15U;
-  constexpr uint32_t kPpaScaleUnit = 16;
-  const uint32_t fill_width = output_screen_width & kJpegBlockMask;
-  const uint32_t fill_height = output_screen_height & kJpegBlockMask;
-  camera_preview_.output_fill = camera_utils::PreviewFillAllowed() &&
-      !output_rotated &&
-      camera_preview_.frame_width > camera_preview_.frame_height &&
-      fill_width > 0 && fill_height > 0 &&
-      camera_preview_.frame_width > 0 && camera_preview_.frame_height > 0;
-  if (camera_preview_.output_fill) {
-    const uint32_t scale_for_width =
-        (fill_width * kPpaScaleUnit + camera_preview_.frame_width - 1) /
-        camera_preview_.frame_width;
-    const uint32_t scale_for_height =
-        (fill_height * kPpaScaleUnit + camera_preview_.frame_height - 1) /
-        camera_preview_.frame_height;
-    const uint32_t scale = std::max<uint32_t>(
-        kPpaScaleUnit, std::max(scale_for_width, scale_for_height));
-    const uint32_t crop_width = std::min<uint32_t>(
-        camera_preview_.frame_width, (fill_width * kPpaScaleUnit / scale) & ~1U);
-    const uint32_t crop_height = std::min<uint32_t>(
-        camera_preview_.frame_height,
-        (fill_height * kPpaScaleUnit / scale) & ~1U);
-    const uint32_t scaled_width = crop_width * scale / kPpaScaleUnit;
-    const uint32_t scaled_height = crop_height * scale / kPpaScaleUnit;
-    camera_preview_.output_fill = crop_width > 0 && crop_height > 0 &&
-        scaled_width <= fill_width && scaled_height <= fill_height;
-    if (camera_preview_.output_fill) {
-      camera_preview_.output_width = fill_width;
-      camera_preview_.output_height = fill_height;
-      camera_preview_.fill_scale_sixteenths = scale;
-      camera_preview_.input_crop_width = crop_width;
-      camera_preview_.input_crop_height = crop_height;
-      camera_preview_.input_crop_x =
-          ((camera_preview_.frame_width - crop_width) / 2) & ~1U;
-      camera_preview_.input_crop_y =
-          ((camera_preview_.frame_height - crop_height) / 2) & ~1U;
-      // Rounding can leave the picture a pixel or two short of the buffer.
-      camera_preview_.fill_offset_x = (fill_width - scaled_width) / 2;
-      camera_preview_.fill_offset_y = (fill_height - scaled_height) / 2;
-    }
-  }
-  if (camera_preview_.output_fill) {
-    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
-        "Camera preview fills %lux%lu from a %lux%lu crop at (%lu,%lu), "
-        "scale %lu/16\n",
-        camera_preview_.output_width, camera_preview_.output_height,
-        camera_preview_.input_crop_width, camera_preview_.input_crop_height,
-        camera_preview_.input_crop_x, camera_preview_.input_crop_y,
-        camera_preview_.fill_scale_sixteenths);
-  }
-  camera_preview_.output_width =
-      std::max<uint32_t>(1, camera_preview_.output_width);
-  camera_preview_.output_height =
-      std::max<uint32_t>(1, camera_preview_.output_height);
-  camera_preview_.output_stride =
-      camera_preview_.output_width * bytes_per_pixel;
+  // SurvivalOS: both buffers are allocated for the largest geometry, the
+  // whole screen, so that switching the zoom never has to reallocate them.
   camera_preview_.output_buffer_size =
-      AlignUp(camera_preview_.output_stride * camera_preview_.output_height,
+      AlignUp(output_screen_width * output_screen_height * bytes_per_pixel,
           camera_preview_.ppa.CacheLineSize());
   void* output_buffer =
       heap_caps_aligned_calloc(camera_preview_.ppa.CacheLineSize(), 1,
@@ -685,7 +637,8 @@ TDisplayP4Device::InitializeCameraPreviewAttempt(TickType_t startup_tick) {
   }
   camera_preview_.output_back_buffer.reset(
       static_cast<uint8_t*>(output_back_buffer));
-  camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
+  camera_preview_.applied_zoom = 0xFF;
+  ApplyCameraPreviewGeometry();
   camera_preview_.warmup_frames_remaining = kCameraWarmupFrameCount;
 
   int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -736,6 +689,8 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
   camera_preview_.output_buffer.reset();
   camera_preview_.output_back_buffer.reset();
   camera_preview_.output_fill = false;
+  camera_preview_.applied_zoom = 0xFF;
+  camera_preview_.output_frame_size = 0;
   if (camera_preview_.output_mutex != nullptr) {
     vSemaphoreDelete(camera_preview_.output_mutex);
     camera_preview_.output_mutex = nullptr;
@@ -756,6 +711,143 @@ void TDisplayP4Device::DeinitializeCameraPreview() {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "Camera power disable failed\n");
   }
+}
+
+int TDisplayP4Device::CameraPreviewZoomStepCount() const {
+  return static_cast<int>(camera_utils::PreviewZoom::kFill) + 1;
+}
+
+int TDisplayP4Device::GetCameraPreviewZoomStep() const {
+  return static_cast<int>(camera_utils::GetPreviewZoom());
+}
+
+bool TDisplayP4Device::SetCameraPreviewZoomStep(int step) {
+  if (step < 0 || step >= CameraPreviewZoomStepCount()) {
+    return false;
+  }
+  camera_utils::SetPreviewZoom(static_cast<camera_utils::PreviewZoom>(step));
+  return true;
+}
+
+const char* TDisplayP4Device::CameraPreviewZoomLabel(int step) const {
+  if (step < 0 || step >= CameraPreviewZoomStepCount()) {
+    return "";
+  }
+  return camera_utils::PreviewZoomLabel(
+      static_cast<camera_utils::PreviewZoom>(step));
+}
+
+void TDisplayP4Device::ApplyCameraPreviewGeometry() {
+  // The sensor frame is landscape and the screen portrait, so the preview
+  // shows a centre crop of the frame scaled into a buffer of its own size:
+  // the whole frame as a strip (kWide), its full height in a roughly square
+  // viewfinder (kNormal), or as much as covers the screen (kFill). The bigger
+  // the share of the frame, the smaller the viewfinder.
+  //
+  // Buffer sides are multiples of 16 because photos and video are JPEG-encoded
+  // straight from the buffer in 16x16 blocks. The PPA scales in sixteenths, so
+  // the factor is rounded up to the next sixteenth and the crop is the largest
+  // one that still lands inside the buffer.
+  constexpr uint32_t kJpegBlock = 16;
+  constexpr uint32_t kPpaScaleUnit = 16;
+  const auto divide_rounding_up = [](uint32_t value, uint32_t divisor) {
+    return (value + divisor - 1) / divisor;
+  };
+  const camera_utils::PreviewZoom zoom = camera_utils::GetPreviewZoom();
+  const uint32_t frame_width = camera_preview_.frame_width;
+  const uint32_t frame_height = camera_preview_.frame_height;
+  const bool output_rotated = camera_preview_.output_rotation_angle == 90 ||
+                              camera_preview_.output_rotation_angle == 270;
+  const uint32_t screen_width = output_rotated ? ScreenHeight() : ScreenWidth();
+  const uint32_t screen_height =
+      output_rotated ? ScreenWidth() : ScreenHeight();
+  const uint32_t box_width = screen_width / kJpegBlock * kJpegBlock;
+  const uint32_t box_height = screen_height / kJpegBlock * kJpegBlock;
+
+  // The vendor's geometry: the whole frame fitted into a screen-sized buffer.
+  bool fill = false;
+  uint32_t output_width = std::max<uint32_t>(1, screen_width);
+  uint32_t output_height = std::max<uint32_t>(1, screen_height);
+  uint32_t scale = kPpaScaleUnit;
+  uint32_t crop_x = 0;
+  uint32_t crop_y = 0;
+  uint32_t crop_width = 0;
+  uint32_t crop_height = 0;
+  uint32_t offset_x = 0;
+  uint32_t offset_y = 0;
+  if (!output_rotated && frame_width > frame_height && frame_height > 0 &&
+      box_width > 0 && box_height > 0) {
+    const uint32_t scale_to_width =
+        divide_rounding_up(box_width * kPpaScaleUnit, frame_width);
+    switch (zoom) {
+      case camera_utils::PreviewZoom::kWide:
+        scale = scale_to_width;
+        break;
+      case camera_utils::PreviewZoom::kNormal:
+        scale = divide_rounding_up(box_width * kPpaScaleUnit, frame_height);
+        break;
+      case camera_utils::PreviewZoom::kFill:
+        scale = std::max(scale_to_width,
+            divide_rounding_up(box_height * kPpaScaleUnit, frame_height));
+        break;
+    }
+    scale = std::max<uint32_t>(1, scale);
+    crop_width = std::min<uint32_t>(
+        frame_width, (box_width * kPpaScaleUnit / scale) & ~1U);
+    crop_height = std::min<uint32_t>(
+        frame_height, (box_height * kPpaScaleUnit / scale) & ~1U);
+    const uint32_t scaled_width = crop_width * scale / kPpaScaleUnit;
+    const uint32_t scaled_height = crop_height * scale / kPpaScaleUnit;
+    const uint32_t fitted_width = std::min(
+        box_width, divide_rounding_up(scaled_width, kJpegBlock) * kJpegBlock);
+    const uint32_t fitted_height = std::min(box_height,
+        divide_rounding_up(scaled_height, kJpegBlock) * kJpegBlock);
+    fill = crop_width > 0 && crop_height > 0 && scaled_width > 0 &&
+           scaled_height > 0 && scaled_width <= fitted_width &&
+           scaled_height <= fitted_height;
+    if (fill) {
+      output_width = fitted_width;
+      output_height = fitted_height;
+      crop_x = ((frame_width - crop_width) / 2) & ~1U;
+      crop_y = ((frame_height - crop_height) / 2) & ~1U;
+      // Rounding can leave the picture a pixel or two short of the buffer.
+      offset_x = (fitted_width - scaled_width) / 2;
+      offset_y = (fitted_height - scaled_height) / 2;
+    }
+  }
+
+  const size_t bytes_per_pixel = ScreenBitsPerPixel() / 8;
+  const bool locked = camera_preview_.output_mutex != nullptr &&
+      xSemaphoreTake(camera_preview_.output_mutex, portMAX_DELAY) == pdTRUE;
+  camera_preview_.output_fill = fill;
+  camera_preview_.fill_scale_sixteenths = scale;
+  camera_preview_.input_crop_x = crop_x;
+  camera_preview_.input_crop_y = crop_y;
+  camera_preview_.input_crop_width = crop_width;
+  camera_preview_.input_crop_height = crop_height;
+  camera_preview_.fill_offset_x = offset_x;
+  camera_preview_.fill_offset_y = offset_y;
+  camera_preview_.output_width = output_width;
+  camera_preview_.output_height = output_height;
+  camera_preview_.output_stride = output_width * bytes_per_pixel;
+  camera_preview_.output_frame_size =
+      std::min(camera_preview_.output_buffer_size,
+          AlignUp(camera_preview_.output_stride * output_height,
+              camera_preview_.ppa.CacheLineSize()));
+  // Both buffers still hold the old picture around the new one.
+  camera_preview_.clear_output_frames_remaining = kCameraOutputClearFrameCount;
+  camera_preview_.applied_zoom = static_cast<uint8_t>(zoom);
+  if (locked) {
+    xSemaphoreGive(camera_preview_.output_mutex);
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Camera preview %lux%lu from a %lux%lu crop at (%lu,%lu), scale %lu/16\n",
+      static_cast<unsigned long>(output_width),
+      static_cast<unsigned long>(output_height),
+      static_cast<unsigned long>(crop_width),
+      static_cast<unsigned long>(crop_height),
+      static_cast<unsigned long>(crop_x), static_cast<unsigned long>(crop_y),
+      static_cast<unsigned long>(scale));
 }
 
 bool TDisplayP4Device::RenderCameraFrame(

@@ -57,6 +57,11 @@ constexpr HapticEffectMapping kEffectMappings[] = {
         .gain_percent = 100, .auto_brake = true, .play_ms = 90},
     /* kSliderMove    */ {.sequence = 1, .loop_count = kLoopUntilStopped,
         .gain_percent = 11, .auto_brake = true, .play_ms = 28},
+    // Waveform 4 is the library's short tick, the right shape for a mark.
+    /* kPuzzleTap     */ {.sequence = 4, .loop_count = 1, .gain_percent = 45,
+        .auto_brake = true, .play_ms = 6},
+    /* kPuzzleDrag    */ {.sequence = 4, .loop_count = 1, .gain_percent = 25,
+        .auto_brake = true, .play_ms = 5},
 };
 
 hal::HapticProvider* g_haptic_provider = nullptr;

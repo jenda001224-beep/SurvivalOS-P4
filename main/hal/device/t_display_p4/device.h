@@ -282,6 +282,10 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return true when a photo was written.
    */
   bool CaptureCameraPhoto(const char* path) override;
+  int CameraPreviewZoomStepCount() const override;
+  int GetCameraPreviewZoomStep() const override;
+  bool SetCameraPreviewZoomStep(int step) override;
+  const char* CameraPreviewZoomLabel(int step) const override;
 
   /**
    * @brief Starts recording the preview into a Motion JPEG video.
@@ -1093,6 +1097,13 @@ class TDisplayP4Device final : public ScreenProvider,
   bool RenderCameraFrame(uint8_t* buffer, uint32_t width, uint32_t height);
 
   /**
+   * @brief SurvivalOS: sets crop, scale and output size of the preview for the
+   *        zoom currently chosen. Runs on the preview task; the UI sees the
+   *        change with the next frame.
+   */
+  void ApplyCameraPreviewGeometry();
+
+  /**
    * @brief 以太网初始化任务入口
    * @param context 设备对象指针
    */
@@ -1443,11 +1454,16 @@ class TDisplayP4Device final : public ScreenProvider,
     // the preview task never has to wait for the UI's copy.
     std::unique_ptr<uint8_t, HeapCapsBufferDeleter> output_back_buffer;
     // SurvivalOS: true when the preview is a centre crop of the sensor frame
-    // enlarged to cover the whole upright screen, instead of the whole 16:9
-    // frame shrunk to fit with black bars above and below.
+    // scaled into a buffer of its own size (see ApplyCameraPreviewGeometry),
+    // instead of the whole frame fitted into a screen-sized buffer.
     bool output_fill = false;
+    // The camera_utils::PreviewZoom the geometry was computed for; any other
+    // value means it has to be computed (again).
+    uint8_t applied_zoom = 0xFF;
+    // Bytes of the current frame; output_buffer_size is the buffers' capacity.
+    size_t output_frame_size = 0;
     // Region of the sensor frame shown when output_fill is set, the PPA scale
-    // in sixteenths that enlarges it, and where the result lands in the buffer.
+    // in sixteenths that resizes it, and where the result lands in the buffer.
     uint32_t input_crop_x = 0;
     uint32_t input_crop_y = 0;
     uint32_t input_crop_width = 0;

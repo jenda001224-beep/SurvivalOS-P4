@@ -18,6 +18,7 @@
 #include "ui/views/files_view.h"
 #include "ui/views/maps_view.h"
 #include "ui/views/music_view.h"
+#include "ui/views/petdoku_view.h"
 #include "ui/views/photos_view.h"
 #include "ui/views/radio_view.h"
 #include "ui/views/settings_view.h"
@@ -239,6 +240,9 @@ lv_obj_t* CreateAppView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   if (IsAppId(app_entry, "files")) {
     return CreateFilesView(parent, app_entry, config);
+  }
+  if (IsAppId(app_entry, "petdoku")) {
+    return CreatePetdokuView(parent, app_entry, config);
   }
   if (IsAppId(app_entry, "radio")) {
     return CreateRadioView(parent, app_entry, config);
