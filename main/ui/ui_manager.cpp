@@ -18,7 +18,10 @@
 #include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "app/network_monitor.h"
+#include "app/edition.h"
+#include "app/power_saving.h"
 #include "app/storage/bluetooth_storage.h"
+#include "app/storage/first_boot_storage.h"
 #include "app/storage/display_storage.h"
 #include "app/storage/input_method_storage.h"
 #include "app/storage/sound_storage.h"
@@ -37,6 +40,7 @@
 #include "ui/resources/images/image_assets.h"
 #include "ui/views/camera_view.h"
 #include "ui/views/first_boot_welcome_view.h"
+#include "ui/views/setup_wizard_view.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
 #include "ui/views/settings_view.h"
@@ -45,6 +49,11 @@
 #include "ui/widgets/shared_keyboard.h"
 
 namespace lilygo_box::ui {
+
+// From settings_view.cpp. Declared here rather than including the settings
+// internals, whose helper names clash with this file's.
+void SetSettingsRestoreSubPage(const char* page_id);
+
 namespace {
 
 constexpr int kHorizontalPadding = 10;
@@ -1598,7 +1607,11 @@ bool UiManager::AreShellGesturesAvailable() const {
 bool UiManager::InitializeShellGestures() {
   ControlCenterConfig config;
   config.get_brightness_percent = [] {
-    return app::GetDisplayPreferences().brightness_percent;
+    return app::LimitBrightnessForLowPower(
+        app::GetDisplayPreferences().brightness_percent);
+  };
+  config.get_brightness_limit_percent = [] {
+    return app::LimitBrightnessForLowPower(100);
   };
   config.set_brightness_percent = [this](int percent) {
     return screen_brightness_callback_ ? screen_brightness_callback_(percent)
@@ -1633,14 +1646,11 @@ bool UiManager::InitializeShellGestures() {
       wifi_provider_->SetWifiEnabled(enabled);
     }
   };
-  config.get_bluetooth_enabled = [] {
-    return app::GetBluetoothPreferences().enabled_requested;
-  };
-  config.set_bluetooth_enabled = [](bool enabled) {
-    // The co-processor is BLE-only; this preference gates BLE, never audio.
-    app::BluetoothPreferences preferences;
-    preferences.enabled_requested = enabled;
-    app::UpdateBluetoothPreferences(preferences);
+  config.get_low_power_enabled = [] { return app::IsLowPowerModeEnabled(); };
+  config.set_low_power_enabled = [this](bool enabled) {
+    app::SetLowPowerModeEnabled(enabled);
+    // The mode switches Wi-Fi and the brightness cap, both shown in the panel.
+    control_center_.Refresh();
   };
   config.get_silent_mode = [] {
     return app::GetSoundPreferences().silent_mode;
@@ -2293,21 +2303,68 @@ lv_obj_t* UiManager::CreateAppGrid(lv_obj_t* parent) {
     button_contexts_[i].icon_button = nullptr;
     button_contexts_[i].icon_surface = nullptr;
     button_contexts_[i].normal_icon_size = 0;
+    button_contexts_[i].cell = nullptr;
 
     lv_obj_t* cell = CreateAppIcon(grid, &button_contexts_[i], cell_width);
     if (cell == nullptr) {
       lv_obj_delete(grid);
       return nullptr;
     }
-
-    const int column = static_cast<int>(i % columns);
-    const int row = static_cast<int>(i / columns);
-    const int x = inset_x + column * (cell_width + column_gap);
-    const int y = row * (cell_height + kAppRowGap);
-    lv_obj_align(cell, LV_ALIGN_TOP_LEFT, x, y);
+    button_contexts_[i].cell = cell;
   }
 
+  grid_icon_layout_.columns = columns;
+  grid_icon_layout_.inset_x = inset_x;
+  grid_icon_layout_.column_gap = column_gap;
+  grid_icon_layout_.cell_width = cell_width;
+  grid_icon_layout_.top = 0;
+  grid_icon_layout_.row_step = cell_height + kAppRowGap;
+  LayoutEditionIcons(
+      button_contexts_.data(), button_context_count_, grid_icon_layout_);
   return grid;
+}
+
+void UiManager::LayoutEditionIcons(
+    AppButtonContext* contexts, size_t count, const IconLayout& layout) {
+  const int columns = std::max(1, layout.columns);
+  int slot = 0;
+  for (size_t i = 0; i < count; ++i) {
+    lv_obj_t* cell = contexts[i].cell;
+    if (cell == nullptr || contexts[i].app_entry == nullptr) {
+      continue;
+    }
+    if (!app::IsAppInEdition(contexts[i].app_entry->id)) {
+      lv_obj_add_flag(cell, LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(cell, LV_OBJ_FLAG_HIDDEN);
+    const int column = slot % columns;
+    const int row = slot / columns;
+    lv_obj_align(cell, LV_ALIGN_TOP_LEFT,
+        layout.inset_x + column * (layout.cell_width + layout.column_gap),
+        layout.top + row * layout.row_step);
+    ++slot;
+  }
+}
+
+void UiManager::ApplyEditionToLauncher() {
+  LayoutEditionIcons(
+      button_contexts_.data(), button_context_count_, grid_icon_layout_);
+  LayoutEditionIcons(dock_button_contexts_.data(), dock_button_context_count_,
+      dock_icon_layout_);
+}
+
+void UiManager::OpenWifiSettings() {
+  const app::AppCatalog& dock = app::GetDockAppCatalog();
+  for (size_t i = 0; i < dock.entry_count; ++i) {
+    if (std::strcmp(dock.entries[i].id, "settings") == 0) {
+      SetSettingsRestoreSubPage("wlan");
+      if (!ShowAppView(dock.entries[i])) {
+        SetSettingsRestoreSubPage(nullptr);
+      }
+      return;
+    }
+  }
 }
 
 lv_obj_t* UiManager::CreateAppIcon(
@@ -2446,6 +2503,7 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
     dock_button_contexts_[i].icon_button = nullptr;
     dock_button_contexts_[i].icon_surface = nullptr;
     dock_button_contexts_[i].normal_icon_size = 0;
+    dock_button_contexts_[i].cell = nullptr;
 
     lv_obj_t* cell =
         CreateDockIcon(dock, &dock_button_contexts_[i], cell_width);
@@ -2453,12 +2511,17 @@ lv_obj_t* UiManager::CreateDock(lv_obj_t* parent) {
       lv_obj_delete(dock);
       return nullptr;
     }
-
-    const int column = static_cast<int>(i % dock_columns);
-    const int x = inset_x + column * (cell_width + column_gap);
-    lv_obj_align(cell, LV_ALIGN_TOP_LEFT, x, kDockTopPadding);
+    dock_button_contexts_[i].cell = cell;
   }
 
+  dock_icon_layout_.columns = dock_columns;
+  dock_icon_layout_.inset_x = inset_x;
+  dock_icon_layout_.column_gap = column_gap;
+  dock_icon_layout_.cell_width = cell_width;
+  dock_icon_layout_.top = kDockTopPadding;
+  dock_icon_layout_.row_step = 0;
+  LayoutEditionIcons(dock_button_contexts_.data(), dock_button_context_count_,
+      dock_icon_layout_);
   return dock;
 }
 
@@ -2868,13 +2931,18 @@ bool UiManager::CreateFirstBootWelcomeScreen() {
     return false;
   }
 
-  FirstBootWelcomeViewOptions options;
+  // SurvivalOS: the setup assistant replaces the vendor's one-page welcome.
+  SetupWizardViewOptions options;
   options.screen_width = LayoutWidth();
   options.screen_height = LayoutHeight();
-  options.colors = &theme_provider_.colors();
-  options.completion_callback = [this]() { return CompleteFirstBootWelcome(); };
-  first_boot_welcome_screen_ =
-      CreateFirstBootWelcomeView(root_screen_, options);
+  options.storage = storage_provider_;
+  options.completion_callback = [this](const SetupWizardResult& result) {
+    app::SetEdition(result.edition);
+    ApplyEditionToLauncher();
+    open_wifi_settings_after_setup_ = result.open_wifi_settings;
+    return CompleteFirstBootWelcome();
+  };
+  first_boot_welcome_screen_ = CreateSetupWizardView(root_screen_, options);
   if (first_boot_welcome_screen_ == nullptr) {
     return false;
   }
@@ -2905,6 +2973,7 @@ bool UiManager::StartFirstBootWelcomeFadeOut() {
 }
 
 void UiManager::DestroyFirstBootWelcomeScreen() {
+  const bool was_closing = first_boot_welcome_closing_;
   if (first_boot_welcome_screen_ != nullptr) {
     lv_obj_t* screen = first_boot_welcome_screen_;
     first_boot_welcome_screen_ = nullptr;
@@ -2914,6 +2983,10 @@ void UiManager::DestroyFirstBootWelcomeScreen() {
   SetStatusBarTextColor(theme::FixedColors().status_bar_text);
   SetStatusBarVisible(true);
   status_bar_.MoveToTop();
+  if (was_closing && open_wifi_settings_after_setup_) {
+    open_wifi_settings_after_setup_ = false;
+    OpenWifiSettings();
+  }
 }
 
 bool UiManager::CompleteFirstBootWelcome() {
@@ -2989,6 +3062,21 @@ bool UiManager::CreateActiveAppView(const app::AppEntry& app_entry) {
   config.show_power_options = [this]() {
     return ShowPowerMenu(restart_device_callback_, power_off_device_callback_,
         std::function<void()>());
+  };
+  config.request_setup_assistant = [this]() {
+    // Deferred: the request comes from a click inside the app that is about
+    // to be closed.
+    lv_async_call(
+        [](void* user_data) {
+          auto* self = static_cast<UiManager*>(user_data);
+          self->ShowLauncher();
+          app::ResetSetup();
+          self->ShowFirstBootWelcome([]() {
+            app::MarkFirstBootCompleted();
+            return app::MarkSetupCompleted();
+          });
+        },
+        this);
   };
 
   SetStatusBarVisible(true);

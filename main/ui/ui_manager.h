@@ -294,7 +294,39 @@ class UiManager final {
     lv_obj_t* icon_button = nullptr;
     lv_obj_t* icon_surface = nullptr;
     int normal_icon_size = 0;
+    // SurvivalOS: the icon's cell, so an edition change can hide it.
+    lv_obj_t* cell = nullptr;
   };
+
+  // SurvivalOS: where launcher icons go, kept so that hiding apps for the MINI
+  // edition can close the gaps without rebuilding the home screen.
+  struct IconLayout {
+    int columns = 1;
+    int inset_x = 0;
+    int column_gap = 0;
+    int cell_width = 0;
+    int top = 0;
+    int row_step = 0;
+  };
+
+  /**
+   * @brief Shows only the apps of the current edition and closes the gaps.
+   * @param contexts Icons of the grid or the dock.
+   * @param count Number of icons.
+   * @param layout Grid geometry.
+   */
+  static void LayoutEditionIcons(
+      AppButtonContext* contexts, size_t count, const IconLayout& layout);
+
+  /**
+   * @brief Re-applies the edition to the home grid and the dock.
+   */
+  void ApplyEditionToLauncher();
+
+  /**
+   * @brief Opens Settings straight on its WLAN page.
+   */
+  void OpenWifiSettings();
 
   /**
    * @brief 处理 app 图标点击事件
@@ -709,6 +741,10 @@ class UiManager final {
   lv_obj_t* second_page_dot_ = nullptr;
   std::array<AppButtonContext, app::kMaxAppEntryCount> button_contexts_;
   std::array<AppButtonContext, app::kMaxAppEntryCount> dock_button_contexts_;
+  IconLayout grid_icon_layout_;
+  IconLayout dock_icon_layout_;
+  // Set by the setup assistant; acted on once it has faded out.
+  bool open_wifi_settings_after_setup_ = false;
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;

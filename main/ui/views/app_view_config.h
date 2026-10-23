@@ -116,6 +116,8 @@ struct AppViewConfig {
   std::function<void(bool enabled)> set_dark_theme_enabled;
   // 显示系统重新启动和关机选项。
   std::function<bool()> show_power_options;
+  // SurvivalOS: closes the app and runs the setup assistant again.
+  std::function<void()> request_setup_assistant;
 };
 
 }  // namespace lilygo_box::ui

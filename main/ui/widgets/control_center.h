@@ -25,10 +25,13 @@ struct ControlCenterConfig {
   // Reads and writes the Wi-Fi radio switch.
   std::function<bool()> get_wifi_enabled;
   std::function<void(bool enabled)> set_wifi_enabled;
-  // Reads and writes the BLE radio switch. The co-processor is BLE-only, so
-  // this never controls audio devices.
-  std::function<bool()> get_bluetooth_enabled;
-  std::function<void(bool enabled)> set_bluetooth_enabled;
+  // Highest brightness the slider may reach right now (Low Power Mode caps
+  // it); unset means 100.
+  std::function<int()> get_brightness_limit_percent;
+  // Reads and writes Low Power Mode. SurvivalOS: this slot held a Bluetooth
+  // switch upstream, but nothing on the phone uses Bluetooth.
+  std::function<bool()> get_low_power_enabled;
+  std::function<void(bool enabled)> set_low_power_enabled;
   // Reads and writes silent mode.
   std::function<bool()> get_silent_mode;
   std::function<void(bool enabled)> set_silent_mode;
@@ -184,7 +187,7 @@ class ControlCenter final {
   lv_obj_t* volume_slider_ = nullptr;
   lv_obj_t* hardware_label_ = nullptr;
   ToggleButton wifi_toggle_;
-  ToggleButton bluetooth_toggle_;
+  ToggleButton low_power_toggle_;
   ToggleButton silent_toggle_;
   ToggleButton lock_toggle_;
   int panel_height_ = 0;

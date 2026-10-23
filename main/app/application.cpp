@@ -15,8 +15,10 @@
 
 #include "app/diagnostics/hardware_diagnostics.h"
 #include "app/diagnostics/serial_commands.h"
+#include "app/edition.h"
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
+#include "app/power_saving.h"
 #include "app/restart_loop_guard.h"
 #include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
@@ -26,6 +28,7 @@
 #include "app/storage/otg_storage.h"
 #include "app/storage/power_state_storage.h"
 #include "app/storage/sound_storage.h"
+#include "app/storage/wifi_storage.h"
 #include "app/storage/storage.h"
 #include "app/wifi_manager.h"
 #include "base/logger.h"
@@ -655,8 +658,9 @@ bool Application::Init() {
     return false;
   }
   ui_manager_.SetScreenLockCallback([this]() { RequestScreenLock(); });
-  ui_manager_.SetScreenBrightnessCallback(
-      [this](int percent) { return ApplyScreenBrightness(percent); });
+  ui_manager_.SetScreenBrightnessCallback([this](int percent) {
+    return ApplyScreenBrightness(app::LimitBrightnessForLowPower(percent));
+  });
   ui_manager_.SetSpeakerVolumeCallback([this](int percent, bool commit) {
     return ApplySpeakerVolume(percent, commit);
   });
@@ -695,6 +699,17 @@ bool Application::Init() {
   }
   app::InitStorage(device_provider_context_.capabilities.supported_radio_chips,
       primary_radio_chip);
+  app::InitLowPowerStorage();
+  app::InitEditionStorage();
+  app::SetLowPowerModeListener(
+      [this](bool enabled) { ApplyLowPowerMode(enabled); });
+  if (app::IsLowPowerModeEnabled()) {
+    // Brightness and auto-lock follow through LoadDisplayPreferencesOrDefault
+    // and Wi-Fi was switched off when the mode began; only the frame rate has
+    // to be set again after a restart.
+    lvgl_port_.SetFramePeriods(
+        app::kLowPowerRefreshPeriodMs, app::kLowPowerTouchPeriodMs);
+  }
   if (!app::NetworkMonitor::Instance().Initialize(
           device_provider_context_.wifi)) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -706,7 +721,8 @@ bool Application::Init() {
         "Initialize firmware update manager failed\n");
   }
   lilygo_box::ui::SetLvglPortForRotation(&lvgl_port_);
-  app::DisplayPreferences display_preferences = app::GetDisplayPreferences();
+  app::DisplayPreferences display_preferences =
+      LoadDisplayPreferencesOrDefault();
   const app::KeyboardExpansionPreferences keyboard_expansion_preferences =
       app::GetKeyboardExpansionPreferences();
   if (device_provider_context_.keyboard_expansion != nullptr &&
@@ -780,10 +796,14 @@ bool Application::Init() {
   }
   StartScreenBacklight(display_preferences.brightness_percent);
 
-  if (!app::IsFirstBootCompleted()) {
+  // SurvivalOS: the setup assistant has its own flag, so a phone flashed with
+  // "keep settings" still sees it once.
+  if (!app::IsSetupCompleted()) {
     lvgl_port_.Lock();
-    const bool welcome_result = ui_manager_.ShowFirstBootWelcome(
-        []() { return app::MarkFirstBootCompleted(); });
+    const bool welcome_result = ui_manager_.ShowFirstBootWelcome([]() {
+      app::MarkFirstBootCompleted();
+      return app::MarkSetupCompleted();
+    });
     lvgl_port_.Unlock();
     if (!welcome_result) {
       LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
@@ -1089,6 +1109,46 @@ void Application::HandleBatteryManagementStatusUpdate(
   }
   battery_depleted_pending_.store(
       status.pack_present && status.charge_percent == 0);
+  if (status.ready && status.pack_present) {
+    app::UpdateLowPowerForBattery(status.charge_percent, status.charging);
+  }
+}
+
+void Application::ApplyLowPowerMode(bool enabled) {
+  lvgl_port_.SetFramePeriods(
+      enabled ? app::kLowPowerRefreshPeriodMs : app::kNormalRefreshPeriodMs,
+      enabled ? app::kLowPowerTouchPeriodMs : app::kNormalTouchPeriodMs);
+
+  // The Wi-Fi chip draws tens of milliamps just by being powered, so the mode
+  // cuts its power and brings it back afterwards if it was in use.
+  hal::WifiProvider* wifi = device_provider_context_.wifi;
+  app::WifiPreferences wifi_preferences = app::GetWifiPreferences();
+  if (enabled) {
+    if (app::HasWifiPreferences() && wifi_preferences.enabled_requested) {
+      wifi_preferences.enabled_requested = false;
+      app::UpdateWifiPreferences(wifi_preferences);
+      app::SetLowPowerWifiRestore(true);
+      if (wifi != nullptr) {
+        wifi->SetWifiEnabled(false);
+      }
+    }
+  } else if (app::GetLowPowerState().restore_wifi) {
+    app::SetLowPowerWifiRestore(false);
+    if (!wifi_preferences.enabled_requested) {
+      wifi_preferences.enabled_requested = true;
+      app::UpdateWifiPreferences(wifi_preferences);
+      if (wifi != nullptr) {
+        wifi->SetWifiEnabled(true);
+      }
+    }
+  }
+
+  // Same direct path the brightness slider uses; a sleeping screen picks the
+  // limited value up when it wakes.
+  if (!screen_off_confirmed_.load() && !lvgl_port_.IsDisplayFlushPaused() &&
+      current_screen_brightness_percent_.load() > 0) {
+    ApplyScreenBrightness(LoadDisplayPreferencesOrDefault().brightness_percent);
+  }
 }
 
 void Application::UpdateKeyboardExpansionScan() {
@@ -2987,7 +3047,7 @@ bool Application::FadeScreenBrightnessTo(
 }
 
 app::DisplayPreferences Application::LoadDisplayPreferencesOrDefault() const {
-  return app::GetDisplayPreferences();
+  return app::LimitDisplayPreferencesForLowPower(app::GetDisplayPreferences());
 }
 
 }  // namespace lilygo_box

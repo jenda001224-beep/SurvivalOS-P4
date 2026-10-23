@@ -782,7 +782,8 @@ lv_obj_t* CreateMapsView(lv_obj_t* parent, const app::AppEntry& app_entry,
         state->storage != nullptr && state->storage->IsSdCardMounted();
     lv_label_set_text(state->status_label,
         card_mounted
-            ? "SD card OK, but no maps. Copy .pmtiles files into /maps."
+            ? "SD card OK, but no maps yet. Copy .pmtiles files from the "
+              "SurvivalOS web page anywhere on the card."
             : "SD card not detected (needs FAT32 or exFAT).");
   }
   UpdateStatus(state);

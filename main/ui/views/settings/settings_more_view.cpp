@@ -205,6 +205,16 @@ void LockNowClickedEventCallback(lv_event_t* event) {
   }
 }
 
+void SetupAgainClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  auto* state = static_cast<SettingsViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->config.request_setup_assistant) {
+    state->config.request_setup_assistant();
+  }
+}
+
 /**
  * @brief 打开系统电源选项
  * @param event LVGL 事件对象
@@ -766,6 +776,17 @@ bool BuildMoreSettingsContent(lv_obj_t* body, SettingsViewState* state) {
   y += kBasicRowHeight;
   if (!CreateArrowRow(body, "Power options", "", y, state->config.width,
           PowerOptionsClickedEventCallback, state)) {
+    return false;
+  }
+  y += kBasicRowHeight + 12;
+  // SurvivalOS: edition (Full / Mini) and the SD card content are chosen in
+  // the setup assistant, so it has to be reachable again.
+  if (!CreateSectionLabel(body, "SurvivalOS", y, state->config.width)) {
+    return false;
+  }
+  y += kBasicSectionHeight;
+  if (!CreateArrowRow(body, "Run setup again", "", y, state->config.width,
+          SetupAgainClickedEventCallback, state)) {
     return false;
   }
   y += kBasicRowHeight + 12;

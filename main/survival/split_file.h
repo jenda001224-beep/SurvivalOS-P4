@@ -9,8 +9,7 @@
 
 namespace lilygo_box::survival {
 
-// ESP-IDF's FatFs has exFAT disabled, so no file on the SD card may exceed
-// 4 GB. Large datasets are therefore stored the way `split` writes them —
+// Large datasets may be stored the way `split` writes them —
 // `planet.pmtilesaa`, `planet.pmtilesab`, … — and this class stitches the parts
 // back into one addressable byte range.
 //
@@ -87,11 +86,11 @@ class SplitFile {
   bool AddPart(const char* path);
 
   /**
-   * @brief Returns an open handle for a part, opening it if needed.
+   * @brief Opens a part if needed and moves it to the front of the pool.
    * @param index Part index.
-   * @return The handle, or nullptr when it could not be opened.
+   * @return The pool slot holding it (always 0), or -1 on failure.
    */
-  FILE* HandleFor(int index);
+  int HandleFor(int index);
 
   /**
    * @brief Closes every open handle, keeping the part table.
@@ -109,6 +108,43 @@ class SplitFile {
   uint64_t part_offsets_[kMaxParts] = {};
   int part_count_ = 0;
   uint64_t total_size_ = 0;
+
+  // SurvivalOS: on the SD card the parts are read through FatFs directly.
+  // Newlib's stdio offsets are 32-bit `long`, so fseek cannot reach past
+  // 2 GiB; FatFs has 64-bit offsets with exFAT, which lets a single 50 GB
+  // Wikipedia file from Kiwix work without splitting it first.
+  bool use_fatfs_ = false;
+  // FatFs drive prefix ("0:") that replaces the VFS mount point.
+  char fatfs_drive_[4] = {};
+  // Length of the VFS mount point at the start of base_path_ ("/sdcard").
+  size_t vfs_prefix_length_ = 0;
+  // FatFs handles, parallel to open_files_; allocated on demand because each
+  // carries its own sector buffer.
+  void* fatfs_files_[kMaxOpenParts] = {};
+
+  /**
+   * @brief Finds the FatFs drive a VFS path lives on.
+   * @param path VFS path of an existing file.
+   * @return true when the path is on a mounted FatFs volume.
+   */
+  bool ResolveFatfsDrive(const char* path);
+
+  /**
+   * @brief Turns a VFS path into the FatFs path of the same file.
+   * @param path VFS path.
+   * @param buffer Output.
+   * @param size Output size.
+   * @return true when it fitted.
+   */
+  bool ToFatfsPath(const char* path, char* buffer, size_t size) const;
+
+  /**
+   * @brief Measures a file.
+   * @param path VFS path.
+   * @param size Output size in bytes.
+   * @return true when the file exists.
+   */
+  bool MeasureFile(const char* path, uint64_t* size) const;
 
   // The small pool of open handles, most recently used first.
   FILE* open_files_[kMaxOpenParts] = {};

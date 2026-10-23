@@ -133,6 +133,16 @@ class Application final {
   void ShowPendingKeyboardExpansionUnavailableNotice();
 
   /**
+   * @brief Applies Low Power Mode to the screen, Wi-Fi and refresh rate.
+   *
+   * Runs from whichever task changed the mode, the LVGL task included, so it
+   * must not take the LVGL lock.
+   *
+   * @param enabled Whether the mode is now on.
+   */
+  void ApplyLowPowerMode(bool enabled);
+
+  /**
    * @brief 处理状态栏缓存发布的电池管理状态
    * @param status 最新有效电池状态
    */

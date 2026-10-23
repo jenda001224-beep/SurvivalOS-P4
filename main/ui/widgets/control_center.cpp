@@ -20,6 +20,10 @@ constexpr uint32_t kPanelColor = 0x1C1C1E;
 constexpr uint32_t kModuleColor = 0x2C2C2E;
 constexpr uint32_t kTrackColor = 0x3A3A3C;
 constexpr uint32_t kAccentColor = 0x0A84FF;
+// iOS paints Low Power Mode yellow, battery icon included; the glyph turns
+// dark on it to stay readable.
+constexpr uint32_t kLowPowerColor = 0xFFD60A;
+constexpr uint32_t kOnLowPowerColor = 0x1C1C1E;
 constexpr uint32_t kOnDarkColor = 0xFFFFFF;
 constexpr uint32_t kSliderFillColor = 0xF2F2F7;
 constexpr uint32_t kSliderIconColor = 0x8E8E93;
@@ -147,7 +151,7 @@ bool ControlCenter::Init(const ControlCenterConfig& config) {
   const bool toggles_created =
       CreateToggle(panel_, &wifi_toggle_, icon::kSignalWifi4Bar, toggle_x,
           toggle_y, toggle_size) &&
-      CreateToggle(panel_, &bluetooth_toggle_, icon::kBluetooth,
+      CreateToggle(panel_, &low_power_toggle_, icon::kEnergySavingsLeaf,
           toggle_x += toggle_size + toggle_gap, toggle_y, toggle_size) &&
       CreateToggle(panel_, &silent_toggle_, icon::kVolumeOff,
           toggle_x += toggle_size + toggle_gap, toggle_y, toggle_size) &&
@@ -209,7 +213,7 @@ void ControlCenter::Destroy() {
   volume_slider_ = nullptr;
   hardware_label_ = nullptr;
   wifi_toggle_ = {};
-  bluetooth_toggle_ = {};
+  low_power_toggle_ = {};
   silent_toggle_ = {};
   lock_toggle_ = {};
   panel_height_ = 0;
@@ -356,8 +360,8 @@ void ControlCenter::Refresh() {
   if (config_.get_wifi_enabled) {
     ApplyToggleState(&wifi_toggle_, config_.get_wifi_enabled());
   }
-  if (config_.get_bluetooth_enabled) {
-    ApplyToggleState(&bluetooth_toggle_, config_.get_bluetooth_enabled());
+  if (config_.get_low_power_enabled) {
+    ApplyToggleState(&low_power_toggle_, config_.get_low_power_enabled());
   }
   if (config_.get_silent_mode) {
     ApplyToggleState(&silent_toggle_, config_.get_silent_mode());
@@ -375,11 +379,14 @@ void ControlCenter::ApplyToggleState(ToggleButton* toggle, bool active) {
     return;
   }
   toggle->active = active;
+  const bool low_power = toggle == &low_power_toggle_;
+  const uint32_t active_color = low_power ? kLowPowerColor : kAccentColor;
   lv_obj_set_style_bg_color(toggle->button,
-      lv_color_hex(active ? kAccentColor : kTrackColor), LV_PART_MAIN);
+      lv_color_hex(active ? active_color : kTrackColor), LV_PART_MAIN);
   if (toggle->icon != nullptr) {
-    lv_obj_set_style_text_color(
-        toggle->icon, lv_color_hex(kOnDarkColor), LV_PART_MAIN);
+    lv_obj_set_style_text_color(toggle->icon,
+        lv_color_hex(active && low_power ? kOnLowPowerColor : kOnDarkColor),
+        LV_PART_MAIN);
   }
 }
 
@@ -475,9 +482,9 @@ void ControlCenter::ToggleClickedCallback(lv_event_t* event) {
   if (target == self->wifi_toggle_.button) {
     toggle = &self->wifi_toggle_;
     setter = self->config_.set_wifi_enabled;
-  } else if (target == self->bluetooth_toggle_.button) {
-    toggle = &self->bluetooth_toggle_;
-    setter = self->config_.set_bluetooth_enabled;
+  } else if (target == self->low_power_toggle_.button) {
+    toggle = &self->low_power_toggle_;
+    setter = self->config_.set_low_power_enabled;
   } else if (target == self->silent_toggle_.button) {
     toggle = &self->silent_toggle_;
     setter = self->config_.set_silent_mode;
@@ -508,7 +515,15 @@ void ControlCenter::SliderChangedCallback(lv_event_t* event) {
   PlayUiHapticEffect(HapticEffect::kSliderMove);
   if (target == self->brightness_slider_ &&
       self->config_.set_brightness_percent) {
-    self->config_.set_brightness_percent(value);
+    // Under a cap the fill stops where the screen does, rather than showing a
+    // brightness that is not there.
+    const int limit = self->config_.get_brightness_limit_percent
+        ? std::clamp(self->config_.get_brightness_limit_percent(), 0, 100)
+        : 100;
+    if (value > limit) {
+      lv_slider_set_value(target, limit, LV_ANIM_OFF);
+    }
+    self->config_.set_brightness_percent(std::min(value, limit));
   } else if (target == self->volume_slider_ &&
       self->config_.set_volume_percent) {
     self->config_.set_volume_percent(value);

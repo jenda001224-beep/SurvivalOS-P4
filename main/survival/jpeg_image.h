@@ -62,6 +62,18 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
     uint32_t max_height, JpegImage* image);
 
 /**
+ * @brief Encodes colour bars on the JPEG accelerator and decodes them again.
+ *
+ * Photos are encoded from the preview frame and shown through
+ * LoadJpegImage(), so this checks both directions agree on RGB565 byte order.
+ *
+ * @param report Receives "want->got" per bar, a '!' marking a wrong one.
+ * @param report_size Size of report.
+ * @return true when every bar came back in its own colour.
+ */
+bool RunJpegColorSelfTest(char* report, size_t report_size);
+
+/**
  * @brief Releases an image returned by LoadJpegImage().
  * @param image Image to free; safe to call on an empty image.
  */

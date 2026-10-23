@@ -11,6 +11,9 @@
 
 #include "app/build_stamp.h"
 #include "app/diagnostics/hardware_diagnostics.h"
+#include "app/content_sorter.h"
+#include "app/edition.h"
+#include "app/power_saving.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -19,6 +22,7 @@
 #include "games/petdoku_engine.h"
 #include "hal/device/common/camera_utils.h"
 #include "sdkconfig.h"
+#include "survival/jpeg_image.h"
 
 namespace lilygo_box::app {
 namespace {
@@ -123,6 +127,14 @@ void PrintStatus() {
         static_cast<unsigned long>(has_frame ? frame.width : 0),
         static_cast<unsigned long>(has_frame ? frame.height : 0));
   }
+
+  std::printf("svos: edition %s, setup %s\n",
+      app::GetEdition() == app::Edition::kMini ? "mini" : "full",
+      app::IsSetupCompleted() ? "done" : "pending");
+  const app::LowPowerState low_power = app::GetLowPowerState();
+  std::printf("svos: low power %s auto=%d by_battery=%d wifi_back=%d\n",
+      low_power.enabled ? "on" : "off", low_power.auto_enable,
+      low_power.enabled_automatically, low_power.restore_wifi);
 
   if (g_targets.battery != nullptr) {
     hal::BatteryManagementStatus battery;
@@ -303,7 +315,12 @@ void PrintHelp() {
       "svos:   svos c6 install        replace ESP-AT with ESP-Hosted\n"
       "svos:   svos c6 boot           BOOT button is being held\n"
       "svos:   svos c6 at A;B;...     send AT commands (no spaces), log replies\n"
-      "svos:   svos camera on|off|wide|normal|fill  preview and its zoom\n");
+      "svos:   svos camera on|off|wide|normal|fill  preview and its zoom\n"
+      "svos:   svos jpeg              colour round trip through encoder+decoder\n"
+      "svos:   svos lowpower on|off   switch Low Power Mode\n"
+      "svos:   svos setup             run the setup assistant at next start\n"
+      "svos:   svos edition full|mini choose the edition\n"
+      "svos:   svos sort              file SD card downloads into place\n");
 }
 
 void StartCoprocessor(hal::WifiCoprocessorUpdateMode mode) {
@@ -346,6 +363,34 @@ void RunCommand(char* line) {
   } else if (std::strcmp(command, "wifi") == 0 && g_targets.wifi != nullptr &&
              std::strcmp(argument, "scan") == 0) {
     ScanWifi();
+  } else if (std::strcmp(command, "lowpower") == 0 &&
+             (std::strcmp(argument, "on") == 0 ||
+                 std::strcmp(argument, "off") == 0)) {
+    app::SetLowPowerModeEnabled(std::strcmp(argument, "on") == 0);
+    std::printf("svos: low power %s\n",
+        app::IsLowPowerModeEnabled() ? "on" : "off");
+  } else if (std::strcmp(command, "setup") == 0) {
+    app::ResetSetup();
+    std::printf("svos: setup assistant runs at the next start\n");
+  } else if (std::strcmp(command, "edition") == 0 &&
+             (std::strcmp(argument, "full") == 0 ||
+                 std::strcmp(argument, "mini") == 0)) {
+    app::SetEdition(std::strcmp(argument, "full") == 0 ? app::Edition::kFull
+                                                       : app::Edition::kMini);
+    std::printf("svos: edition %s from the next start\n", argument);
+  } else if (std::strcmp(command, "sort") == 0 &&
+             g_targets.storage != nullptr) {
+    if (!g_targets.storage->EnsureSdCardMounted()) {
+      std::printf("svos: sort: no SD card\n");
+    } else {
+      std::printf("svos: sort moved %u file(s)\n",
+          static_cast<unsigned>(
+              app::SortCardContent(g_targets.storage->SdCardBasePath())));
+    }
+  } else if (std::strcmp(command, "jpeg") == 0) {
+    char report[96];
+    const bool passed = survival::RunJpegColorSelfTest(report, sizeof(report));
+    std::printf("svos: jpeg %s %s\n", passed ? "OK" : "FAILED", report);
   } else if (std::strcmp(command, "petdoku") == 0) {
     BenchPetdoku();
   } else if (std::strcmp(command, "sd") == 0 && g_targets.storage != nullptr) {

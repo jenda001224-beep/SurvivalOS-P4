@@ -975,10 +975,35 @@ bool LvglPort::RotateFlushBuffer(lv_display_t* lvgl_display,
   return true;
 }
 
+void LvglPort::SetFramePeriods(
+    uint32_t refresh_period_ms, uint32_t touch_period_ms) {
+  pending_refresh_period_ms_.store(refresh_period_ms, std::memory_order_release);
+  pending_touch_period_ms_.store(touch_period_ms, std::memory_order_release);
+  if (task_handle_ != nullptr) {
+    xTaskNotifyGive(task_handle_);
+  }
+}
+
 void LvglPort::TaskLoop() {
   while (true) {
     uint32_t refresh_generation = 0;
     Lock();
+    const uint32_t refresh_period_ms =
+        pending_refresh_period_ms_.exchange(0, std::memory_order_acq_rel);
+    if (refresh_period_ms != 0 && lvgl_display_ != nullptr) {
+      lv_timer_t* refresh_timer = lv_display_get_refr_timer(lvgl_display_);
+      if (refresh_timer != nullptr) {
+        lv_timer_set_period(refresh_timer, refresh_period_ms);
+      }
+    }
+    const uint32_t touch_period_ms =
+        pending_touch_period_ms_.exchange(0, std::memory_order_acq_rel);
+    if (touch_period_ms != 0 && input_device_ != nullptr) {
+      lv_timer_t* touch_timer = lv_indev_get_read_timer(input_device_);
+      if (touch_timer != nullptr) {
+        lv_timer_set_period(touch_timer, touch_period_ms);
+      }
+    }
     if (display_refresh_requested_.exchange(false, std::memory_order_acq_rel)) {
       refresh_generation =
           display_refresh_request_generation_.load(std::memory_order_acquire);

@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "app/power_saving.h"
 #include "app/storage/battery_storage.h"
 #include "app/system_status_cache.h"
 #include "base/logger.h"
@@ -41,6 +42,10 @@ constexpr uint32_t kBatteryLowColor = 0xFF3B30;
 constexpr uint32_t kBatteryRestColor = 0xB8EFC8;
 constexpr uint32_t kBatteryLowRestColor = 0xF6B2AE;
 constexpr uint32_t kBatteryTextColor = 0xFFFFFF;
+
+// The Low Power Mode switch, so the refresh timer can follow the automatic
+// switch while the page is open. Only one battery page exists at a time.
+lv_obj_t* g_low_power_switch = nullptr;
 
 /**
  * @brief 获取电池概览卡片的填充颜色
@@ -269,6 +274,33 @@ void RefreshBatteryPage(SettingsViewState* state) {
 
   UpdateBatteryOverview(state, status);
   UpdateBatteryProtection(state, status);
+  if (g_low_power_switch != nullptr &&
+      lv_obj_has_state(g_low_power_switch, LV_STATE_CHECKED) !=
+          app::IsLowPowerModeEnabled()) {
+    if (app::IsLowPowerModeEnabled()) {
+      lv_obj_add_state(g_low_power_switch, LV_STATE_CHECKED);
+    } else {
+      lv_obj_remove_state(g_low_power_switch, LV_STATE_CHECKED);
+    }
+  }
+}
+
+void LowPowerSwitchChangedEventCallback(lv_event_t* event) {
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+      target == nullptr) {
+    return;
+  }
+  app::SetLowPowerModeEnabled(lv_obj_has_state(target, LV_STATE_CHECKED));
+}
+
+void LowPowerAutoSwitchChangedEventCallback(lv_event_t* event) {
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+      target == nullptr) {
+    return;
+  }
+  app::SetLowPowerAutoEnable(lv_obj_has_state(target, LV_STATE_CHECKED));
 }
 
 /**
@@ -309,6 +341,7 @@ void BatteryPageDeleteEventCallback(lv_event_t* event) {
   state->battery_health_value_label = nullptr;
   state->battery_cycle_value_label = nullptr;
   state->battery_capacity_value_label = nullptr;
+  g_low_power_switch = nullptr;
 }
 
 /**
@@ -660,11 +693,31 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
     return false;
   }
   y += 212;
-  if (!CreateArrowRow(body, "Current mode", "Balanced", y, state->config.width,
-          nullptr, state)) {
+  // SurvivalOS: upstream showed a fixed "Current mode: Balanced" row here.
+  const app::LowPowerState low_power = app::GetLowPowerState();
+  char low_power_summary[96] = {};
+  std::snprintf(low_power_summary, sizeof(low_power_summary),
+      "Screen max %d%%, Wi-Fi off, 15 fps, locks after %d s",
+      app::kLowPowerBrightnessCapPercent, app::kLowPowerLockTimeoutSeconds);
+  if (!CreateSwitchRow(body, "Low Power Mode", y, state->config.width,
+          low_power.enabled, LowPowerSwitchChangedEventCallback, state, false,
+          &g_low_power_switch, low_power_summary)) {
     return false;
   }
-  y += kBasicRowHeight;
+  y += kBasicSwitchRowWithSubtitleHeight;
+  char auto_title[48] = {};
+  std::snprintf(auto_title, sizeof(auto_title), "Turn on at %d%%",
+      app::kLowPowerAutoEnablePercent);
+  char auto_summary[64] = {};
+  std::snprintf(auto_summary, sizeof(auto_summary),
+      "Turns off again once charged to %d%%",
+      app::kLowPowerAutoDisablePercent);
+  if (!CreateSwitchRow(body, auto_title, y, state->config.width,
+          low_power.auto_enable, LowPowerAutoSwitchChangedEventCallback, state,
+          false, nullptr, auto_summary)) {
+    return false;
+  }
+  y += kBasicSwitchRowWithSubtitleHeight;
   if (!CreateArrowRow(body, "Battery protection", "", y, state->config.width,
           BatteryProtectionClickedEventCallback, state)) {
     return false;

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <mutex>
 
+#include "app/content_sorter.h"
 #include "app/diagnostics/hardware_diagnostics.h"
 #include "base/logger.h"
 #include "hal/device/t_display_p4/device.h"
@@ -54,7 +55,13 @@ bool TDisplayP4Device::EnsureSdCardMounted() {
     return false;
   }
   app::SetHardwareDiagnostic(app::HardwareDiagnostic::kSdCard, "");
-  return IsSdCardMounted();
+  const bool mounted = IsSdCardMounted();
+  if (mounted) {
+    // SurvivalOS: downloads copied anywhere on the card are moved into the
+    // folders the apps read, on a task of their own.
+    app::StartCardContentSort(device::sd::kBasePath);
+  }
+  return mounted;
 }
 
 bool TDisplayP4Device::UnmountSdCard() {

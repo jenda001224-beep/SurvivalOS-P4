@@ -35,7 +35,6 @@
       "exclude_icons": [
         "BatteryAndroid0",
         "Keyboard",
-        "VolumeOff",
         "Repeat",
         "RepeatOne",
         "Shuffle"
@@ -222,6 +221,10 @@
     "Draft": {
       "cpp_name": "kDraft",
       "codepoint": 58989
+    },
+    "EnergySavingsLeaf": {
+      "cpp_name": "kEnergySavingsLeaf",
+      "codepoint": 60442
     },
     "Explore": {
       "cpp_name": "kExplore",

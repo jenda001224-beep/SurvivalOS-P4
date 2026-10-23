@@ -18,6 +18,7 @@
 
 #include "base/logger.h"
 #include "ui/haptic_feedback.h"
+#include "app/edition.h"
 #include "hal/providers/storage_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "esp_heap_caps.h"
@@ -33,6 +34,8 @@ namespace {
 
 // Photos land in the standard DCIM folder so any card reader finds them.
 constexpr const char* kPhotoDirectory = "DCIM";
+// Upper end of a full-screen JPEG at quality 90, for the internal-memory check.
+constexpr size_t kPhotoBytes = 320 * 1024;
 constexpr uint32_t kRecordingTimerMs = 200;
 constexpr int kModeButtonSize = 72;
 constexpr int kShutterButtonSize = 116;
@@ -107,14 +110,20 @@ const lv_font_t* Font28() { return &lvgl_font_google_sans_flex_28; }
  * @param size Buffer size.
  * @return true when a path could be built.
  */
-bool BuildPhotoPath(CameraViewState* state, char* buffer, size_t size) {
+bool BuildPhotoPath(CameraViewState* state, char* buffer, size_t size,
+    bool* on_card = nullptr) {
   // Mounts the card if nothing has yet; only checking would report "No SD
   // card" for a perfectly good card that no other app happened to open first.
-  if (state->storage == nullptr || !state->storage->EnsureSdCardMounted()) {
-    return false;
+  // SurvivalOS: without a card (MINI, or FULL with the card out) the photo
+  // goes to the phone's own memory as long as there is room. MINI does not
+  // try the card at all, which would stall the shutter for a second.
+  bool card = false;
+  const char* base = app::MediaBasePath(state->storage,
+      app::GetEdition() == app::Edition::kFull, &card);
+  if (on_card != nullptr) {
+    *on_card = card;
   }
-  const char* base = state->storage->SdCardBasePath();
-  if (base == nullptr || base[0] == '\0') {
+  if (base == nullptr || (!card && !app::InternalMediaHasRoom(kPhotoBytes))) {
     return false;
   }
   char directory[96] = {};
@@ -196,7 +205,9 @@ void ShowCaptureToast(CameraViewState* state, const char* text) {
  */
 bool BuildVideoPath(CameraViewState* state, char* buffer, size_t size) {
   char photo[160] = {};
-  if (!BuildPhotoPath(state, photo, sizeof(photo))) {
+  bool on_card = false;
+  // Video fills the 4 MB of internal memory in seconds; it needs the card.
+  if (!BuildPhotoPath(state, photo, sizeof(photo), &on_card) || !on_card) {
     return false;
   }
   // Same naming as photos, only the extension differs, so the two sort
@@ -349,7 +360,7 @@ void ShutterClickedEventCallback(lv_event_t* event) {
     char path[160] = {};
     if (!BuildVideoPath(state, path, sizeof(path))) {
       PlayUiHapticEffect(HapticEffect::kWarning);
-      ShowCaptureToast(state, "No SD card");
+      ShowCaptureToast(state, "Video needs an SD card");
       return;
     }
     if (!state->camera->StartVideoRecording(path)) {
@@ -366,7 +377,7 @@ void ShutterClickedEventCallback(lv_event_t* event) {
   char path[160] = {};
   if (!BuildPhotoPath(state, path, sizeof(path))) {
     PlayUiHapticEffect(HapticEffect::kWarning);
-    ShowCaptureToast(state, "No SD card");
+    ShowCaptureToast(state, "Phone memory full - insert an SD card");
     return;
   }
 

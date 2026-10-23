@@ -559,6 +559,11 @@ lv_obj_t* CreateSettingsView(
     g_skip_page_animation = true;
     if (std::strcmp(g_restore_sub_page, "display_brightness") == 0) {
       ShowDisplayBrightnessPage(state);
+    } else if (std::strcmp(g_restore_sub_page, "wlan") == 0) {
+      // SurvivalOS: the setup assistant opens Settings here. Unlike the
+      // rotation restore above this is one-off, so it is forgotten at once.
+      g_restore_sub_page = nullptr;
+      ShowWifiPage(state);
     }
     // 后续其他子页面可以在这里扩展
   }

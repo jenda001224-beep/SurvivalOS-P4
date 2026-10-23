@@ -186,6 +186,17 @@ class LvglPort final {
   void SetDisplayRotation(int angle);
 
   /**
+   * @brief Sets how often the screen repaints and the touch panel is read.
+   *
+   * Safe from any task, the LVGL task included: the new periods are picked up
+   * by the LVGL task on its next pass.
+   *
+   * @param refresh_period_ms Time between repaints.
+   * @param touch_period_ms Time between touch reads.
+   */
+  void SetFramePeriods(uint32_t refresh_period_ms, uint32_t touch_period_ms);
+
+  /**
    * @brief 锁定 LVGL API 访问
    */
   void Lock();
@@ -350,6 +361,9 @@ class LvglPort final {
   std::atomic<bool> display_flush_in_progress_{false};
   // 恢复显示后请求 LVGL 任务在自己的锁内执行一次全屏重绘。
   std::atomic<bool> display_refresh_requested_{false};
+  // Periods waiting for the LVGL task to apply; 0 means nothing pending.
+  std::atomic<uint32_t> pending_refresh_period_ms_{0};
+  std::atomic<uint32_t> pending_touch_period_ms_{0};
   // 每次恢复硬件刷新时递增，用于区分不同的首帧请求。
   std::atomic<uint32_t> display_refresh_request_generation_{0};
   // 当前由 LVGL 任务绘制并等待异步传输结束的首帧代次。

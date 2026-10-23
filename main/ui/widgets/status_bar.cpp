@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "app/power_saving.h"
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/resources/images/image_assets.h"
@@ -31,6 +32,7 @@ constexpr int kStatusBarBatteryFillOffsetX = 5;
 constexpr int kStatusBarBatteryFillOffsetY = 0;
 constexpr int kStatusBarBatteryFillRadius = 2;
 constexpr int kStatusBarBatteryLowThresholdPercent = 20;
+constexpr uint32_t kStatusBarBatteryLowPowerColor = 0xFFD60A;
 
 /**
  * @brief 设置文本对象的颜色和字体
@@ -188,6 +190,11 @@ void MakeTransparent(lv_obj_t* object) {
  * @return 填充条颜色
  */
 uint32_t BatteryFillColor(int percent, bool charging, uint32_t text_color) {
+  // SurvivalOS: yellow while Low Power Mode is on, as on iOS, so the reason
+  // for the dim screen and missing Wi-Fi is always in sight.
+  if (app::IsLowPowerModeEnabled()) {
+    return kStatusBarBatteryLowPowerColor;
+  }
   if (charging) {
     return theme::FixedColors().status_bar_battery_charging;
   }

@@ -15,6 +15,7 @@
 
 #include "audio/wav_decoder.h"
 #include "base/logger.h"
+#include "app/edition.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "hal/providers/storage_provider.h"
@@ -30,6 +31,10 @@ constexpr const char* kRecordingsDirectory = "voice";
 constexpr size_t kMaxRecordings = 64;
 constexpr size_t kMaxPathLength = 128;
 constexpr uint32_t kRefreshIntervalMs = 100;
+// Room a new memo in internal memory needs to start (about 5 s of audio), and
+// the margin at which a running one is stopped.
+constexpr size_t kInternalMemoMinimumBytes = 160 * 1024;
+constexpr size_t kInternalMemoStopBytes = 32 * 1024;
 
 constexpr int kHeaderHeight = 108;
 constexpr int kRowHeight = 96;
@@ -51,6 +56,9 @@ struct Recording {
 };
 
 struct VoiceMemoViewState {
+  // SurvivalOS: the current recording goes to internal memory, so it has to
+  // stop before that fills up.
+  bool recording_to_internal = false;
   hal::AudioProvider* audio = nullptr;
   hal::StorageProvider* storage = nullptr;
   hal::RtcProvider* rtc = nullptr;
@@ -121,11 +129,9 @@ void FormatDuration(char* buffer, size_t size, uint32_t milliseconds) {
  */
 bool BuildDirectoryPath(
     const VoiceMemoViewState* state, char* buffer, size_t size) {
-  if (state->storage == nullptr || !state->storage->IsSdCardMounted()) {
-    return false;
-  }
-  const char* base = state->storage->SdCardBasePath();
-  if (base == nullptr || base[0] == '\0') {
+  // SurvivalOS: the phone's own memory stands in when there is no card.
+  const char* base = app::MediaBasePath(state->storage, false, nullptr);
+  if (base == nullptr) {
     return false;
   }
   return std::snprintf(buffer, size, "%s/%s", base, kRecordingsDirectory) <
@@ -421,20 +427,25 @@ void RecordClickedCallback(lv_event_t* event) {
     state->recording = false;
     ApplyRecordButtonState(state);
     if (state->status_label != nullptr) {
-      lv_label_set_text(state->status_label, "Saving…");
+      lv_label_set_text(state->status_label, "Saving...");
     }
     return;
   }
 
   StopPlayback(state);
   char path[kMaxPathLength] = {};
-  if (!BuildNewRecordingPath(state, path, sizeof(path))) {
+  bool on_card = false;
+  app::MediaBasePath(state->storage, false, &on_card);
+  if ((!on_card && !app::InternalMediaHasRoom(kInternalMemoMinimumBytes)) ||
+      !BuildNewRecordingPath(state, path, sizeof(path))) {
     PlayUiHapticEffect(HapticEffect::kWarning);
     if (state->status_label != nullptr) {
-      lv_label_set_text(state->status_label, "No SD card");
+      lv_label_set_text(state->status_label,
+          on_card ? "Cannot save here" : "Phone memory full");
     }
     return;
   }
+  state->recording_to_internal = !on_card;
   if (!state->audio->StartAudioRecording(path)) {
     PlayUiHapticEffect(HapticEffect::kWarning);
     if (state->status_label != nullptr) {
@@ -463,6 +474,21 @@ void RefreshTimerCallback(lv_timer_t* timer) {
   hal::AudioRecordingStatus recording_status;
   const bool has_recording_status =
       state->audio->ReadAudioRecordingStatus(&recording_status);
+
+  if (state->recording && has_recording_status &&
+      state->recording_to_internal &&
+      recording_status.state == hal::AudioRecordingState::kRecording &&
+      !app::InternalMediaHasRoom(kInternalMemoStopBytes)) {
+    // Internal memory also holds every setting; stop well before it is full.
+    state->audio->StopAudioRecording();
+    state->recording = false;
+    ApplyRecordButtonState(state);
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    if (state->status_label != nullptr) {
+      lv_label_set_text(state->status_label, "Phone memory full");
+    }
+    return;
+  }
 
   if (state->recording && has_recording_status) {
     char text[48] = {};
@@ -640,7 +666,8 @@ lv_obj_t* CreateVoiceMemoView(lv_obj_t* parent, const app::AppEntry& app_entry,
     ApplyRecordButtonState(state);
   }
 
-  if (state->storage != nullptr) {
+  if (state->storage != nullptr &&
+      app::GetEdition() == app::Edition::kFull) {
     state->storage->EnsureSdCardMounted();
   }
   ScanRecordings(state);

@@ -14,6 +14,7 @@
 
 #include "base/logger.h"
 #include "esp_heap_caps.h"
+#include "app/edition.h"
 #include "hal/providers/storage_provider.h"
 #include "survival/avi_reader.h"
 #include "survival/jpeg_image.h"
@@ -143,11 +144,9 @@ void FillImageDescriptor(
  */
 bool BuildDirectoryPath(
     const PhotosViewState* state, char* buffer, size_t size) {
-  if (state->storage == nullptr || !state->storage->IsSdCardMounted()) {
-    return false;
-  }
-  const char* base = state->storage->SdCardBasePath();
-  if (base == nullptr || base[0] == '\0') {
+  // SurvivalOS: without a card the camera saves to internal memory.
+  const char* base = app::MediaBasePath(state->storage, false, nullptr);
+  if (base == nullptr) {
     return false;
   }
   return std::snprintf(buffer, size, "%s/%s", base, kPhotoDirectory) <
@@ -484,9 +483,10 @@ void RebuildGrid(PhotosViewState* state) {
     const bool card_mounted =
         state->storage != nullptr && state->storage->IsSdCardMounted();
     lv_obj_t* empty = CreateLabel(state->grid,
-        card_mounted
+        card_mounted || app::GetEdition() == app::Edition::kMini
             ? "No photos yet.\nTake one with the Camera app."
-            : "SD card not detected.\nIt needs FAT32 or exFAT.",
+            : "No photos yet.\nWithout an SD card they are kept\nin the "
+              "phone's own memory.",
         0x8A8A8E, &lvgl_font_google_sans_flex_24);
     if (empty != nullptr) {
       lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -683,7 +683,8 @@ lv_obj_t* CreatePhotosView(lv_obj_t* parent, const app::AppEntry& app_entry,
   lv_obj_set_scroll_dir(state->grid, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(state->grid, LV_SCROLLBAR_MODE_OFF);
 
-  if (state->storage != nullptr) {
+  if (state->storage != nullptr &&
+      app::GetEdition() == app::Edition::kFull) {
     state->storage->EnsureSdCardMounted();
   }
   ScanPhotos(state);

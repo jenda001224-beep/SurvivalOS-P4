@@ -65,3 +65,5 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 # SurvivalOS: 30 frames per second instead of 100. Drawing the 568x1232 panel
 # takes longer than 10 ms anyway, so the higher rate only kept the CPU busy.
 CONFIG_LV_DEF_REFR_PERIOD=33
+# SurvivalOS: the setup assistant shows a QR code to the content page.
+CONFIG_LV_USE_QRCODE=y

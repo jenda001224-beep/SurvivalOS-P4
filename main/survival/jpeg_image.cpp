@@ -12,6 +12,7 @@
 
 #include "base/logger.h"
 #include "driver/jpeg_decode.h"
+#include "driver/jpeg_encode.h"
 #include "esp_heap_caps.h"
 #include "hal/ppa/ppa_srm_helper.h"
 
@@ -184,9 +185,12 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
     return false;
   }
 
+  // LVGL's RGB565 is little endian. The driver's "RGB" order swaps the two
+  // bytes of every pixel (big endian), which turned every photo into garbage
+  // colours; "BGR" leaves them in native order, as the IDF LCD example does.
   const jpeg_decode_cfg_t decode_config = {
       .output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
-      .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_RGB,
+      .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,
       .conv_std = JPEG_YUV_RGB_CONV_STD_BT601,
   };
   uint32_t decoded_bytes = 0;
@@ -285,6 +289,103 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
   image->width = target_width;
   image->height = target_height;
   return true;
+}
+
+bool RunJpegColorSelfTest(char* report, size_t report_size) {
+  if (report == nullptr || report_size == 0) {
+    return false;
+  }
+  report[0] = '\0';
+  // Four 16-pixel bars in LVGL's native RGB565: red, green, blue, white. They
+  // go through the same encoder settings as a photo and back through the
+  // viewer's decoder, so a byte-order mistake on either side shows up as a
+  // wrong colour here.
+  constexpr uint32_t kWidth = 64;
+  constexpr uint32_t kHeight = 16;
+  constexpr uint16_t kBars[] = {0xF800, 0x07E0, 0x001F, 0xFFFF};
+  const size_t raw_bytes = kWidth * kHeight * sizeof(uint16_t);
+
+  const jpeg_encode_memory_alloc_cfg_t input_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
+  };
+  size_t input_capacity = 0;
+  auto* input = static_cast<uint16_t*>(
+      jpeg_alloc_encoder_mem(raw_bytes, &input_config, &input_capacity));
+  const jpeg_encode_memory_alloc_cfg_t output_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
+  };
+  size_t output_capacity = 0;
+  auto* output = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(raw_bytes + 4096, &output_config,
+          &output_capacity));
+  jpeg_encoder_handle_t encoder = nullptr;
+  const jpeg_encode_engine_cfg_t engine_config = {
+      .intr_priority = 0,
+      .timeout_ms = kDecodeTimeoutMs,
+  };
+  if (input == nullptr || output == nullptr ||
+      jpeg_new_encoder_engine(&engine_config, &encoder) != ESP_OK) {
+    free(input);
+    free(output);
+    std::snprintf(report, report_size, "encoder setup failed");
+    return false;
+  }
+  for (uint32_t y = 0; y < kHeight; ++y) {
+    for (uint32_t x = 0; x < kWidth; ++x) {
+      input[y * kWidth + x] = kBars[x / 16];
+    }
+  }
+  const jpeg_encode_cfg_t encode_config = {
+      .height = kHeight,
+      .width = kWidth,
+      .src_type = JPEG_ENCODE_IN_FORMAT_RGB565,
+      .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
+      .image_quality = 95,
+      .pixel_reverse = false,
+  };
+  uint32_t encoded_size = 0;
+  const esp_err_t error = jpeg_encoder_process(encoder, &encode_config,
+      reinterpret_cast<uint8_t*>(input), static_cast<uint32_t>(raw_bytes),
+      output, static_cast<uint32_t>(output_capacity), &encoded_size);
+  jpeg_del_encoder_engine(encoder);
+  free(input);
+  if (error != ESP_OK || encoded_size == 0) {
+    free(output);
+    std::snprintf(report, report_size, "encode failed: %s",
+        esp_err_to_name(error));
+    return false;
+  }
+
+  JpegImage image;
+  const bool decoded = DecodeJpegBuffer(output, encoded_size, 0, 0, &image);
+  free(output);
+  if (!decoded || image.width < kWidth || image.height < kHeight) {
+    FreeJpegImage(&image);
+    std::snprintf(report, report_size, "decode failed");
+    return false;
+  }
+
+  bool all_close = true;
+  size_t used = 0;
+  const auto* pixels = reinterpret_cast<const uint16_t*>(image.pixels);
+  for (size_t bar = 0; bar < 4; ++bar) {
+    const uint16_t got = pixels[8 * image.width + bar * 16 + 8];
+    const uint16_t want = kBars[bar];
+    // Compression shifts each channel a little; a swap moves it completely.
+    const int dr = std::abs(((got >> 11) & 0x1F) - ((want >> 11) & 0x1F));
+    const int dg = std::abs(((got >> 5) & 0x3F) - ((want >> 5) & 0x3F));
+    const int db = std::abs((got & 0x1F) - (want & 0x1F));
+    const bool close = dr <= 3 && dg <= 6 && db <= 3;
+    all_close = all_close && close;
+    used += static_cast<size_t>(std::snprintf(report + used,
+        used < report_size ? report_size - used : 0, "%s%04X->%04X%s",
+        bar == 0 ? "" : " ", want, got, close ? "" : "!"));
+    if (used >= report_size) {
+      break;
+    }
+  }
+  FreeJpegImage(&image);
+  return all_close;
 }
 
 void FreeJpegImage(JpegImage* image) {

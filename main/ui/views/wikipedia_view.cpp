@@ -291,7 +291,7 @@ void ArchiveClickedCallback(lv_event_t* event) {
   state->pending_archive = index;
   ResetBody(state);
   state->screen = Screen::kLoading;
-  SetHeader(state, "Opening…");
+  SetHeader(state, "Opening...");
   state->status_label = CreateLabel(state->body,
       "Reading the archive index.\nThe first open takes a few seconds.",
       theme::ActiveThemeColors().on_surface_variant,
@@ -324,9 +324,10 @@ void ShowLibrary(WikipediaViewState* state) {
         state->storage != nullptr && state->storage->IsSdCardMounted();
     state->status_label = CreateLabel(state->body,
         card_mounted
-            ? "The SD card works, but it has no archives.\n\nPut Kiwix ZIM "
-              "files in /wiki on the card. Files larger than 2 GB have to be "
-              "split into .zimaa, .zimab, … parts."
+            ? "The SD card works, but it has no Wikipedia yet.\n\nGet a "
+              "Kiwix .zim file from the SurvivalOS web page and copy it "
+              "anywhere on the card; it moves to /wiki by itself when the "
+              "card goes in. Files over 4 GB need an exFAT card."
             : "SD card not detected.\n\nInsert a card formatted as FAT32 or "
               "exFAT, then open Wikipedia again.",
         theme::ActiveThemeColors().on_surface_variant,

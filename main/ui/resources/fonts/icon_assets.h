@@ -26,6 +26,7 @@ inline constexpr char kChevronRight[] = "\xEE\x97\x8C";
 inline constexpr char kClose[] = "\xEE\x97\x8D";
 inline constexpr char kDraft[] = "\xEE\x99\xAD";
 inline constexpr char kDelete[] = "\xEE\xA4\xAE";
+inline constexpr char kEnergySavingsLeaf[] = "\xEE\xB0\x9A";
 inline constexpr char kFile[] = "\xEE\x99\xAD";
 inline constexpr char kFolder[] = "\xEE\x8B\x87";
 inline constexpr char kFolderOpen[] = "\xEE\x8B\x88";

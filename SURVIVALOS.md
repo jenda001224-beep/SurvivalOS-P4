@@ -15,10 +15,28 @@ Flashing is reversible: the web flasher can also write LILYGO's factory image ba
 ## What is added
 
 - iOS-style shell: swipe up from the bottom edge to go home, swipe down from the top
-  for a Control Center (brightness, volume, Wi-Fi, Bluetooth LE, silent mode, lock).
+  for a Control Center (brightness, volume, Wi-Fi, Low Power Mode, silent mode, lock).
+- A setup assistant on the first start (`main/ui/views/setup_wizard_view.*`):
+  edition **Full** (with an SD card) or **Mini** (no card: the card-only apps are
+  hidden and photos and memos go to internal memory), SD card check, a pick of maps
+  and Wikipedia, and a QR code to the web page's download section with that pick
+  ticked (`#content?maps=cz&wiki=cs,en`), then Wi-Fi. It has its own NVS flag
+  (`svos/setup`), so a phone updated with "keep settings" still sees it once;
+  Settings > More Settings > Run setup again shows it again.
+- Low Power Mode (`main/app/power_saving.*`): brightness capped at 30 %, the Wi-Fi
+  co-processor powered off (and back on afterwards if it was in use), 15 frames per
+  second with touch read every 20 ms, auto-lock after 30 s. It turns on by itself at
+  20 % on battery and off again once charging reaches 80 %. The battery icon turns
+  yellow while it is on.
+- Downloads copied anywhere on the card (top folder or one level below) are moved
+  to `/wiki`, `/maps` and `/Music` when the card is mounted
+  (`main/app/content_sorter.*`; `hosttest/sorter/`).
 - Haptic feedback for system gestures and app launches.
-- Offline Wikipedia reader (ZIM files, zstd, title search), split across files of at
-  most 2 GiB because the SD card is FAT32 and file offsets are 32-bit.
+- Offline Wikipedia reader (ZIM files, zstd, title search). Files on the SD card are
+  read through FatFs directly with 64-bit offsets, because newlib's `fseek`/`ftell`
+  stop at 2 GiB; a single 50 GB Kiwix file works on an exFAT card, and split parts
+  (`.zimaa`, `.zimab`, ...) still do too (`main/survival/split_file.*`;
+  `hosttest/splitfile/` reads a 4.5 GiB file on a real exFAT image).
 - Offline vector maps (PMTiles v3 + Mapbox Vector Tiles, rendered on the device)
   with GPS position and a hiking-trail overlay.
 - Photos, Voice Memo, photo and MJPEG/AVI video capture in Camera, WAV playback.
@@ -75,8 +93,16 @@ console (115200 baud) are commands; `svos help` lists them. They report what the
 device sees (`svos status`), the CPU share of each task (`svos tasks`), and start
 the few actions whose logs matter: Wi-Fi on/off/scan, an SD card write-and-read
 test, the camera preview, and identifying or updating the Wi-Fi chip
-(`svos c6 identify | rehearse | install`). See
+(`svos c6 identify | rehearse | install`). Also `svos jpeg` (colour round trip
+through the hardware JPEG encoder and the photo viewer's decoder), `svos lowpower
+on|off`, `svos setup` (assistant again at the next start), `svos edition full|mini`
+and `svos sort` (file the card's downloads now). See
 `main/app/diagnostics/serial_commands.cpp`.
+
+Photos once came out in wrong colours: the photo viewer asked the JPEG decoder for
+`JPEG_DEC_RGB_ELEMENT_ORDER_RGB`, which on the P4 swaps the two bytes of every
+RGB565 pixel (big endian) while LVGL draws little endian. It now asks for `BGR`,
+the order the ESP-IDF LCD example uses; the encoder side is unchanged.
 
 ## Build
 
