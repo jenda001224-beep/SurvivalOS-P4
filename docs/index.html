@@ -4,187 +4,533 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<title>SurvivalOS — Web Flasher</title>
+<meta name="description" content="Install SurvivalOS on a LILYGO T-Display-P4: offline maps, Wikipedia, camera and music, right from your browser.">
+<meta name="theme-color" content="#0E100F">
+<title>SurvivalOS — Install</title>
 <style>
+  :root {
+    --bg: #0E100F;
+    --bg-raised: #161917;
+    --bg-sunken: #0A0B0A;
+    --line: #2A2F2B;
+    --line-soft: #1F2320;
+    --text: #ECEDE8;
+    --text-dim: #A3A8A0;
+    --text-faint: #6E746C;
+    --signal: #FF7A1A;
+    --signal-soft: rgba(255, 122, 26, 0.14);
+    --sage: #9DB089;
+    --ok: #7BC47F;
+    --bad: #FF6B5E;
+    --radius: 18px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
-    background: #fff; color: #000;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    min-height: 100vh; display: flex; justify-content: center; padding: 24px;
+    background-color: var(--bg);
+    /* Contour lines, like a topographic map. */
+    background-image:
+      repeating-radial-gradient(circle at 12% 18%, transparent 0 34px, rgba(157, 176, 137, 0.055) 34px 35px),
+      repeating-radial-gradient(circle at 88% 64%, transparent 0 46px, rgba(157, 176, 137, 0.045) 46px 47px),
+      radial-gradient(ellipse at 50% -10%, rgba(255, 122, 26, 0.10), transparent 60%);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: 16px; line-height: 1.55;
+    min-height: 100vh;
   }
-  .card { border: 2px solid #000; border-radius: 12px; padding: 36px 32px; max-width: 620px; width: 100%; height: fit-content; }
-  .logo { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #555; margin-bottom: 6px; }
-  h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
-  h2 { font-size: 18px; font-weight: 800; margin-bottom: 10px; }
-  #fw-version {
-    display: inline-block; font-size: 12px; font-weight: 600; background: #f0f0f0;
-    border: 1px solid #ddd; border-radius: 6px; padding: 5px 10px; margin-bottom: 18px;
+  a { color: var(--text); text-underline-offset: 3px; text-decoration-color: var(--text-faint); }
+  a:hover { text-decoration-color: var(--signal); }
+  code { font-family: var(--mono); font-size: 0.86em; background: var(--bg-sunken); border: 1px solid var(--line-soft); padding: 1px 6px; border-radius: 6px; }
+  strong { color: var(--text); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── Top bar ─────────────────────────────────────────── */
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .brand svg { width: 34px; height: 34px; }
+  .brand b { font-size: 19px; letter-spacing: 0.01em; }
+  .brand span { display: block; font-size: 12px; color: var(--text-faint); font-weight: 500; letter-spacing: 0.04em; }
+  header.top nav a { font-size: 14px; color: var(--text-dim); text-decoration: none; margin-left: 22px; }
+  header.top nav a:hover { color: var(--text); }
+
+  /* ── Hero ─────────────────────────────────────────────── */
+  .hero { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: center; padding: 36px 0 54px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--signal); margin-bottom: 18px; }
+  .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 4px var(--signal-soft); }
+  .hero h1 { font-size: clamp(38px, 6vw, 62px); line-height: 1.02; letter-spacing: -0.025em; font-weight: 800; margin-bottom: 20px; }
+  .hero h1 em { font-style: normal; color: var(--signal); }
+  .hero p.lead { font-size: 18px; color: var(--text-dim); max-width: 34em; margin-bottom: 28px; }
+  .hero .cta { display: inline-flex; align-items: center; gap: 10px; background: var(--signal); color: #1A0E04; font-weight: 800; font-size: 16px; padding: 15px 24px; border-radius: 14px; text-decoration: none; }
+  .hero .cta:hover { filter: brightness(1.08); }
+  .hero .meta { margin-top: 16px; font-size: 13px; color: var(--text-faint); }
+  .device { justify-self: center; width: min(300px, 80%); }
+
+  /* ── Features ─────────────────────────────────────────── */
+  .features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 64px; }
+  .feature { background: rgba(22, 25, 23, 0.72); border: 1px solid var(--line-soft); border-radius: 16px; padding: 18px; backdrop-filter: blur(4px); }
+  .feature svg { width: 26px; height: 26px; stroke: var(--sage); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 10px; }
+  .feature b { display: block; font-size: 15px; margin-bottom: 3px; }
+  .feature span { font-size: 13.5px; color: var(--text-dim); line-height: 1.45; display: block; }
+
+  /* ── Install panel ────────────────────────────────────── */
+  section.install { scroll-margin-top: 20px; margin-bottom: 64px; }
+  .section-title { font-size: 30px; letter-spacing: -0.015em; font-weight: 800; margin-bottom: 6px; }
+  .section-sub { color: var(--text-dim); margin-bottom: 24px; }
+  .panel { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 24px; padding: 28px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+  .notice { display: flex; gap: 12px; border-radius: 14px; padding: 14px 16px; font-size: 14px; line-height: 1.5; margin-bottom: 22px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--text-dim); }
+  .notice svg { flex: none; width: 20px; height: 20px; margin-top: 1px; stroke: var(--signal); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .notice.strong { border-color: rgba(255, 122, 26, 0.45); background: var(--signal-soft); color: var(--text); }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .step { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 20px; background: var(--bg); display: flex; flex-direction: column; }
+  .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .num { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 14px; background: var(--signal-soft); color: var(--signal); border: 1px solid rgba(255, 122, 26, 0.4); flex: none; }
+  .step-head b { font-size: 17px; }
+  .step p { font-size: 14.5px; color: var(--text-dim); }
+  .step p + p { margin-top: 8px; }
+  .port-art { margin-top: auto; padding-top: 14px; }
+  .port-art svg { width: 100%; height: auto; display: block; }
+
+  .choice { display: block; border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 13px 44px; position: relative; cursor: pointer; margin-bottom: 10px; transition: border-color 0.15s, background 0.15s; }
+  .choice:last-child { margin-bottom: 0; }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice::before { content: ""; position: absolute; left: 15px; top: 16px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--text-faint); }
+  .choice:has(input:checked) { border-color: var(--signal); background: var(--signal-soft); }
+  .choice:has(input:checked)::before { border-color: var(--signal); background: radial-gradient(circle, var(--signal) 0 4px, transparent 5px); }
+  .choice:has(input:focus-visible) { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .choice b { display: block; font-size: 15px; }
+  .choice span { display: block; font-size: 13.5px; color: var(--text-dim); line-height: 1.45; }
+  .tag { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--signal); margin-left: 6px; vertical-align: 1px; }
+
+  button { font: inherit; }
+  .primary { width: 100%; border: none; border-radius: 14px; background: var(--signal); color: #1A0E04; font-weight: 800; font-size: 17px; padding: 17px 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: filter 0.15s, transform 0.05s; }
+  .primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .primary:active:not(:disabled) { transform: translateY(1px); }
+  .primary:disabled { background: #3A3F3B; color: var(--text-faint); cursor: not-allowed; }
+  .primary svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .ghost { background: transparent; border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 11px 16px; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .ghost:hover:not(:disabled) { border-color: var(--text-faint); }
+  .ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ghost.active { background: var(--text); color: var(--bg); }
+  .hint { font-size: 13px; color: var(--text-faint); margin-top: 10px; text-align: center; }
+  .build-chip { display: inline-flex; gap: 8px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--text-dim); background: var(--bg-sunken); border: 1px solid var(--line-soft); border-radius: 999px; padding: 4px 11px; margin-bottom: 14px; }
+  .build-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+  .build-chip.ready i { background: var(--ok); box-shadow: 0 0 0 3px rgba(123, 196, 127, 0.18); }
+
+  /* ── Progress ─────────────────────────────────────────── */
+  .working { display: grid; grid-template-columns: 200px 1fr; gap: 32px; align-items: center; }
+  .ring { position: relative; width: 200px; height: 200px; }
+  .ring svg { width: 200px; height: 200px; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 12; }
+  .ring .track { stroke: var(--line); }
+  .ring .bar { stroke: var(--signal); stroke-linecap: round; stroke-dasharray: 534.07; stroke-dashoffset: 534.07; transition: stroke-dashoffset 0.4s ease; }
+  .ring .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  .ring .pct { font-size: 46px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .ring .pct small { font-size: 22px; color: var(--text-dim); font-weight: 700; }
+  .status-title { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px; }
+  .eta { font-size: 18px; color: var(--signal); font-weight: 700; font-variant-numeric: tabular-nums; min-height: 28px; }
+  .status-detail { color: var(--text-dim); font-size: 14.5px; margin-top: 6px; min-height: 22px; }
+  .stages { list-style: none; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .stages li { font-size: 13px; font-weight: 700; color: var(--text-faint); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; display: flex; align-items: center; gap: 7px; }
+  .stages li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.6; }
+  .stages li.active { color: var(--signal); border-color: rgba(255, 122, 26, 0.5); }
+  .stages li.active::before { opacity: 1; animation: pulse 1.2s ease-in-out infinite; }
+  .stages li.done { color: var(--ok); border-color: rgba(123, 196, 127, 0.4); }
+  .stages li.done::before { opacity: 1; }
+  @keyframes pulse { 50% { transform: scale(1.6); opacity: 0.4; } }
+  .keep-plugged { margin-top: 18px; font-size: 13.5px; color: var(--text-faint); display: flex; gap: 8px; align-items: center; }
+  .keep-plugged svg { width: 16px; height: 16px; stroke: var(--text-faint); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── Result ───────────────────────────────────────────── */
+  .result { text-align: center; padding: 18px 0 6px; }
+  .result .badge { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 18px; }
+  .result .badge svg { width: 42px; height: 42px; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .result.ok .badge { background: rgba(123, 196, 127, 0.14); border: 1px solid rgba(123, 196, 127, 0.5); }
+  .result.ok .badge svg { stroke: var(--ok); }
+  .result.bad .badge { background: rgba(255, 107, 94, 0.12); border: 1px solid rgba(255, 107, 94, 0.5); }
+  .result.bad .badge svg { stroke: var(--bad); }
+  .result h3 { font-size: 26px; letter-spacing: -0.01em; margin-bottom: 8px; }
+  .result p { color: var(--text-dim); max-width: 36em; margin: 0 auto 8px; }
+  .result .actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  .result .actions .primary { width: auto; padding: 13px 22px; font-size: 15px; }
+  .next-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 26px; text-align: left; }
+  .next-steps div { border: 1px solid var(--line-soft); border-radius: 14px; padding: 14px; background: var(--bg); }
+  .next-steps b { display: block; font-size: 14.5px; margin-bottom: 3px; }
+  .next-steps span { font-size: 13.5px; color: var(--text-dim); line-height: 1.45; display: block; }
+
+  /* ── Details, help ────────────────────────────────────── */
+  details.tech { margin-top: 22px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+  details summary { cursor: pointer; list-style: none; font-weight: 700; font-size: 14px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "›"; font-size: 18px; line-height: 1; transition: transform 0.15s; color: var(--text-faint); }
+  details[open] > summary::before { transform: rotate(90deg); }
+  .logbox { margin-top: 12px; border: 1px solid var(--line-soft); background: var(--bg-sunken); border-radius: 12px; padding: 12px 14px; font-family: var(--mono); font-size: 12px; line-height: 1.7; max-height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; color: var(--text-dim); }
+  #log .ok { color: var(--ok); }
+  #log .err { color: var(--bad); }
+  #log .info { color: var(--text-faint); }
+  #serlog { max-height: 340px; min-height: 90px; color: #CFD3CB; }
+  #serlog .note { color: var(--sage); }
+  #serlog .bad { color: var(--bad); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .row input[type=file] { flex: 1; min-width: 220px; color: var(--text-dim); font-size: 13px; padding-top: 9px; }
+
+  .help { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 64px; }
+  .help details { background: rgba(22, 25, 23, 0.72); border: 1px solid var(--line-soft); border-radius: 16px; padding: 16px 18px; }
+  .help details summary { color: var(--text); font-size: 15px; }
+  .help details > div { padding-top: 10px; }
+  .help p { font-size: 14.5px; color: var(--text-dim); }
+  .help p + p { margin-top: 8px; }
+  .tinker { margin-bottom: 48px; }
+  .tinker > summary { font-size: 15px; }
+  .tinker .panel { margin-top: 14px; }
+  .tinker h4 { font-size: 15px; margin-bottom: 4px; }
+  .tinker p { font-size: 14px; color: var(--text-dim); }
+  .tinker .block + .block { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line-soft); }
+  .opt-line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text-dim); margin-top: 10px; cursor: pointer; }
+  .opt-line input { margin-top: 4px; accent-color: var(--signal); }
+
+  footer { border-top: 1px solid var(--line-soft); padding: 26px 0 40px; font-size: 13px; color: var(--text-faint); line-height: 1.7; }
+  footer a { color: var(--text-dim); }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; gap: 28px; padding-top: 12px; }
+    .device { width: 200px; }
+    .features { grid-template-columns: 1fr 1fr; }
+    .steps, .next-steps { grid-template-columns: 1fr; }
+    .working { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+    .stages { justify-content: center; }
+    .keep-plugged { justify-content: center; }
+    .help { grid-template-columns: 1fr; }
+    header.top nav a:not(:last-child) { display: none; }
   }
-  p, li { color: #333; font-size: 14px; line-height: 1.6; }
-  p { margin-bottom: 14px; }
-  ol, ul { margin: 0 0 16px 20px; }
-  li { margin-bottom: 4px; }
-  code { font-family: "SF Mono", "Fira Code", monospace; font-size: 12.5px; background: #f3f3f3; padding: 1px 5px; border-radius: 4px; }
-  .warn { border: 1.5px solid #000; border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-bottom: 18px; }
-  #no-serial-warn { display: none; }
-  .opt { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 10px; }
-  .opt input { margin-top: 3px; }
-  button.primary {
-    width: 100%; padding: 18px; background: #000; color: #fff; border: none; border-radius: 8px;
-    font-size: 17px; font-weight: 700; cursor: pointer; margin: 8px 0 18px;
+  @media (max-width: 480px) {
+    .features { grid-template-columns: 1fr; }
+    .panel { padding: 20px 16px; }
   }
-  button.primary:hover:not(:disabled) { opacity: 0.75; }
-  button:disabled { opacity: 0.25; cursor: not-allowed; }
-  button.secondary {
-    padding: 13px 16px; background: #fff; color: #000; border: 2px solid #000; border-radius: 8px;
-    font-size: 14px; font-weight: 700; cursor: pointer;
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
   }
-  button.secondary:hover:not(:disabled) { opacity: 0.6; }
-  button.secondary.active { background: #000; color: #fff; }
-  #progress-wrap { display: none; margin-bottom: 18px; }
-  .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #555; margin-bottom: 8px; font-weight: 500; }
-  .progress-bar-bg { background: #e0e0e0; border-radius: 999px; height: 6px; overflow: hidden; }
-  #progress-bar { height: 100%; background: #000; border-radius: 999px; width: 0%; transition: width 0.2s; }
-  .logbox {
-    border: 1.5px solid #e0e0e0; border-radius: 8px; padding: 12px 14px;
-    font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; line-height: 1.7;
-    max-height: 260px; overflow-y: auto; min-height: 52px; background: #fafafa; color: #333;
-    white-space: pre-wrap; word-break: break-word;
-  }
-  #log .ok { color: #000; font-weight: 700; }
-  #log .err { color: #000; font-weight: 700; text-decoration: underline; }
-  #log .info { color: #555; }
-  #serlog { background: #0b0b0b; color: #d6d6d6; max-height: 340px; min-height: 90px; border-color: #0b0b0b; }
-  #serlog .note { color: #7CFC7C; }
-  #serlog .bad { color: #ff7b7b; }
-  .divider { border-top: 1px solid #e0e0e0; margin: 26px 0 22px; }
-  .row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .row > button { flex: 1; }
-  details { margin-bottom: 12px; }
-  summary { cursor: pointer; font-size: 14px; font-weight: 700; padding: 6px 0; }
-  details > div { padding: 6px 0 2px; }
-  .footer { margin-top: 22px; font-size: 11px; color: #999; text-align: center; line-height: 1.6; }
-  .footer a { color: #999; }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">LILYGO T-Display-P4 · V1.0</div>
-  <h1>SurvivalOS Flasher</h1>
-  <div id="fw-version">loading firmware info…</div>
 
-  <div id="no-serial-warn" class="warn">
-    This browser has no Web Serial support. Open this page in
-    <strong>Chrome</strong> or <strong>Edge</strong> on a computer (not Safari, not a phone).
-  </div>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#">
+      <!-- Compass rose: north in signal orange. -->
+      <svg viewBox="0 0 34 34" aria-hidden="true">
+        <circle cx="17" cy="17" r="15.5" fill="none" stroke="#2A2F2B" stroke-width="1.5"/>
+        <path d="M17 4 L20.2 17 L17 15.4 L13.8 17 Z" fill="#FF7A1A"/>
+        <path d="M17 30 L13.8 17 L17 18.6 L20.2 17 Z" fill="#9DB089"/>
+        <circle cx="17" cy="17" r="2" fill="#ECEDE8"/>
+      </svg>
+      <div><b>SurvivalOS</b><span>for LILYGO T-Display-P4</span></div>
+    </a>
+    <nav>
+      <a href="#install">Install</a>
+      <a href="#help">Help</a>
+      <a href="https://github.com/jenda001224-beep/SurvivalOS-P4" target="_blank" rel="noopener">Source</a>
+    </nav>
+  </header>
 
-  <div class="warn">
-    <strong>Early build.</strong> It boots and runs on a real T-Display-P4, but
-    it is work in progress and the newest changes may not have been tried on
-    hardware yet. Flashing is reversible — see “Go back to the LILYGO factory
-    firmware” below.
-    Only for the <strong>T-Display-P4 V1.0</strong> (ESP32-P4 revision 1.x).
-  </div>
-
-  <h2>Before you click</h2>
-  <ol>
-    <li>Use the USB-C port on the <strong>side</strong> of the device, labelled
-        <strong>P4.U</strong>. The other USB-C port only charges and cannot flash.</li>
-    <li>Use a data cable (not charge-only). The device should be switched on.</li>
-    <li>Close any other program that has the serial port open.</li>
-    <li>Click <strong>Flash</strong> and pick the port named
-        <strong>USB Single Serial</strong> / <code>usbmodem…</code> (WCH CH343).</li>
-  </ol>
-
-  <label class="opt">
-    <input type="checkbox" id="opt-clean" checked>
-    <span><strong>Clean install</strong> — also reset the device settings.
-      Recommended the first time you move from the LILYGO firmware. Untick it for
-      later updates to keep your settings. The SD card is never touched.</span>
-  </label>
-  <label class="opt">
-    <input type="checkbox" id="opt-allports">
-    <span>Show every serial port in the picker (only if the device is not listed).</span>
-  </label>
-
-  <button id="flash-btn" class="primary" disabled>Flash SurvivalOS</button>
-
-  <div id="progress-wrap">
-    <div class="progress-label"><span id="progress-text">Preparing…</span><span id="progress-pct">0%</span></div>
-    <div class="progress-bar-bg"><div id="progress-bar"></div></div>
-  </div>
-  <div id="log" class="logbox"><span class="info">Loading…</span></div>
-
-  <div class="divider"></div>
-
-  <h2>If something goes wrong</h2>
-  <details>
-    <summary>The flasher cannot connect</summary>
+  <section class="hero">
     <div>
-      <p>Put the board into download mode by hand: <strong>hold BOOT, press and
-      release RST, then release BOOT</strong>. The screen stays black. Click Flash again.</p>
-      <p>If the port is not in the picker at all, tick “Show every serial port”,
-      try another cable, and make sure it is the <strong>P4.U</strong> port.</p>
+      <div class="eyebrow">Works without a network</div>
+      <h1>Your phone,<br><em>off the grid.</em></h1>
+      <p class="lead">SurvivalOS turns the LILYGO T-Display-P4 into an offline companion:
+        maps with GPS, the whole of Wikipedia, a camera, music and voice notes — with
+        everything kept on its own SD card, so none of it needs a signal.</p>
+      <a class="cta" href="#install">
+        Install in your browser
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </a>
+      <div class="meta">Free and open source · takes about two minutes · no software to install</div>
     </div>
-  </details>
-  <details>
-    <summary>The screen stays black after flashing</summary>
-    <div>
-      <p>This board can stay in download mode after a reset. Do a full power
-      cycle: unplug USB, switch the battery <strong>off</strong>, wait five
-      seconds, switch it on again and press the power/RST button.</p>
-      <p>A nearly empty battery also makes the firmware show a warning and
-      switch off again — charge it for a while and retry.</p>
-      <p>Still black? Connect the serial monitor below, press RST, and read what it prints.</p>
+    <svg class="device" viewBox="0 0 220 420" aria-hidden="true">
+      <defs>
+        <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#1B201C"/><stop offset="1" stop-color="#0B0D0B"/>
+        </linearGradient>
+        <linearGradient id="screenglow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#22281F"/><stop offset="1" stop-color="#121611"/>
+        </linearGradient>
+      </defs>
+      <rect x="8" y="6" width="204" height="408" rx="30" fill="#E8752A"/>
+      <rect x="14" y="12" width="192" height="396" rx="25" fill="url(#glass)"/>
+      <rect x="24" y="30" width="172" height="360" rx="16" fill="url(#screenglow)"/>
+      <!-- Contour map on the screen. -->
+      <g fill="none" stroke="#9DB089" stroke-opacity="0.35" stroke-width="1.2">
+        <path d="M30 130 C70 100 110 150 150 120 S196 110 196 110"/>
+        <path d="M30 160 C75 128 112 182 152 150 S196 140 196 140"/>
+        <path d="M30 192 C80 160 116 214 156 182 S196 172 196 172"/>
+        <path d="M30 226 C85 196 120 246 160 216 S196 206 196 206"/>
+        <path d="M30 262 C90 232 124 280 164 252 S196 244 196 244"/>
+      </g>
+      <path d="M58 300 L92 238 L118 252 L150 176" fill="none" stroke="#FF7A1A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 7"/>
+      <circle cx="150" cy="176" r="8" fill="#FF7A1A"/><circle cx="150" cy="176" r="16" fill="#FF7A1A" fill-opacity="0.2"/>
+      <circle cx="58" cy="300" r="5" fill="#ECEDE8"/>
+      <text x="40" y="66" fill="#ECEDE8" font-family="ui-sans-serif, system-ui" font-size="26" font-weight="700">14:06</text>
+      <text x="40" y="86" fill="#A3A8A0" font-family="ui-sans-serif, system-ui" font-size="11">N 49.92° · E 14.19° · 412 m</text>
+      <rect x="40" y="340" width="140" height="30" rx="15" fill="#ECEDE8" fill-opacity="0.08" stroke="#ECEDE8" stroke-opacity="0.12"/>
+      <text x="110" y="359" fill="#ECEDE8" font-family="ui-sans-serif, system-ui" font-size="11" text-anchor="middle">2.4 km to camp</text>
+      <rect x="84" y="396" width="52" height="4" rx="2" fill="#ECEDE8" fill-opacity="0.5"/>
+      <rect x="206" y="196" width="6" height="34" rx="2" fill="#B85C1F"/>
+    </svg>
+  </section>
+
+  <section class="features" aria-label="What is inside">
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><path d="M9 20l-6-3V4l6 3 6-3 6 3v13l-6-3-6 3z"/><path d="M9 7v13M15 4v13"/></svg>
+      <b>Offline maps &amp; GPS</b><span>Topographic maps for your area, Europe or the world, with your position.</span>
     </div>
-  </details>
-  <details>
-    <summary>Wi-Fi does not switch on</summary>
-    <div>
-      <p>Early T-Display-P4 units left the factory with a different firmware
-      (ESP-AT) on their Wi-Fi chip, the ESP32-C6. SurvivalOS replaces it by
-      itself, without a computer: open <strong>Settings → WLAN</strong>, switch
-      WLAN on and tap <strong>Update now</strong>. It takes about a minute and is
-      needed only once. Keep the phone switched on while it runs.</p>
-      <p>Should the phone ask for the BOOT button of the Wi-Fi chip, hold that
-      button, tap Continue, and let go after a second.</p>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h5"/></svg>
+      <b>Wikipedia</b><span>The full encyclopaedia in English or Czech, searchable without a signal.</span>
     </div>
-  </details>
-  <details>
-    <summary>Go back to the LILYGO factory firmware</summary>
-    <div>
-      <p>Download the file ending in <code>-merged.bin</code> for
-      <code>t-display-p4-device-v1.0-esp32p4-rev1.0</code> from the
-      <a href="https://github.com/Xinyuan-LilyGO/lilygobox-espidf/releases" target="_blank" rel="noopener">LILYGO releases page</a>,
-      choose it here and flash it. It is checked the same way before anything is written.</p>
-      <div class="row">
-        <input type="file" id="custom-file" accept=".bin" style="flex:1; font-size:13px; padding-top:12px;">
-        <button id="custom-btn" class="secondary" disabled>Flash this file</button>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <b>Camera</b><span>Photos and video saved straight to the SD card.</span>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+      <b>Music</b><span>Your own library from the card, through the speaker or headphones.</span>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      <b>Voice notes</b><span>Record a thought or a direction in one tap.</span>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/><circle cx="6" cy="12" r="1.2"/></svg>
+      <b>Petdoku</b><span>A logic puzzle with endless levels for quiet evenings.</span>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9 9 0 0 0 0 13M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      <b>LoRa radio</b><span>Text messages between devices, kilometres apart, no towers.</span>
+    </div>
+    <div class="feature">
+      <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="3"/><path d="M11 18h2"/></svg>
+      <b>Feels like a phone</b><span>Swipe up for home, down for the control panel, gentle haptics.</span>
+    </div>
+  </section>
+
+  <section class="install" id="install">
+    <h2 class="section-title">Install SurvivalOS</h2>
+    <p class="section-sub">Three steps, all in this page. Your SD card and its files are never touched.</p>
+
+    <div class="panel">
+      <div id="no-serial-warn" class="notice strong" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <div>This browser cannot talk to USB devices. Open this page in <strong>Google Chrome</strong>
+          or <strong>Microsoft Edge</strong> on a computer — not Safari, Firefox or a phone.</div>
       </div>
+
+      <!-- Ready: the three steps -->
+      <div id="screen-ready">
+        <div class="steps">
+          <div class="step">
+            <div class="step-head"><div class="num">1</div><b>Plug it in</b></div>
+            <p>Use a USB-C <strong>data</strong> cable and the port on the <strong>side</strong>
+              marked <strong>P4.U</strong>. Keep the phone switched on.</p>
+            <div class="port-art">
+              <svg viewBox="0 0 260 104" aria-hidden="true">
+                <rect x="4" y="14" width="150" height="76" rx="16" fill="#E8752A"/>
+                <rect x="10" y="20" width="138" height="64" rx="12" fill="#141714"/>
+                <rect x="148" y="40" width="10" height="24" rx="3" fill="#B85C1F"/>
+                <text x="128" y="10" fill="#FF7A1A" font-family="ui-sans-serif, system-ui" font-size="11" font-weight="800">P4.U</text>
+                <path d="M144 12 L152 36" stroke="#FF7A1A" stroke-width="1.5" stroke-linecap="round"/>
+                <rect x="158" y="44" width="22" height="16" rx="4" fill="#C9CCC4"/>
+                <path d="M180 52 C210 52 222 80 256 80" fill="none" stroke="#C9CCC4" stroke-width="6" stroke-linecap="round"/>
+                <text x="22" y="58" fill="#6E746C" font-family="ui-sans-serif, system-ui" font-size="11">T-Display-P4</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-head"><div class="num">2</div><b>Choose how</b></div>
+            <label class="choice">
+              <input type="radio" name="mode" id="opt-clean" checked>
+              <b>Fresh install <span class="tag">first time</span></b>
+              <span>Starts with default settings. Pick this when coming from the LILYGO firmware.</span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="mode" id="opt-keep">
+              <b>Update</b>
+              <span>Keeps your Wi-Fi, saved places and other settings.</span>
+            </label>
+          </div>
+
+          <div class="step">
+            <div class="step-head"><div class="num">3</div><b>Install</b></div>
+            <div id="build-chip" class="build-chip"><i></i><span id="fw-version">Getting the firmware…</span></div>
+            <p>Your browser will ask which device to use — choose <strong>USB Single Serial</strong>.</p>
+            <div style="margin-top: auto; padding-top: 16px;">
+              <button id="flash-btn" class="primary" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+                Install SurvivalOS
+              </button>
+              <div class="hint" id="ready-hint">Takes about two minutes.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Working: progress -->
+      <div id="screen-working" hidden>
+        <div class="working">
+          <div class="ring" aria-hidden="true">
+            <svg viewBox="0 0 200 200"><circle class="track" cx="100" cy="100" r="85"/><circle id="ring-bar" class="bar" cx="100" cy="100" r="85"/></svg>
+            <div class="center"><div class="pct"><span id="progress-pct">0</span><small>%</small></div></div>
+          </div>
+          <div>
+            <div class="status-title" id="progress-text" role="status" aria-live="polite">Getting ready…</div>
+            <div class="eta" id="eta"></div>
+            <div class="status-detail" id="status-detail"></div>
+            <ul class="stages">
+              <li id="stage-connect">Connect</li>
+              <li id="stage-write">Install</li>
+              <li id="stage-verify">Check</li>
+              <li id="stage-restart">Restart</li>
+            </ul>
+            <div class="keep-plugged">
+              <svg viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></svg>
+              Keep the phone plugged in and this page open until it says done.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Done -->
+      <div id="screen-done" class="result ok" hidden>
+        <div class="badge"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <h3>SurvivalOS is installed</h3>
+        <p>The phone is restarting by itself. The first start takes a few seconds — you can unplug it now.</p>
+        <p id="done-build"></p>
+        <div class="next-steps">
+          <div><b>Connect to Wi-Fi</b><span>Settings → WLAN. If it offers to update the Wi-Fi chip, let it — once, about a minute.</span></div>
+          <div><b>Insert an SD card</b><span>exFAT or FAT32. Maps, Wikipedia and music live on it.</span></div>
+          <div><b>Find your way around</b><span>Swipe up from the bottom to go home, down from the top for the control panel.</span></div>
+        </div>
+        <div class="actions"><button class="ghost" id="again-btn">Install again</button></div>
+      </div>
+
+      <!-- Failed -->
+      <div id="screen-failed" class="result bad" hidden>
+        <div class="badge"><svg viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg></div>
+        <h3 id="fail-title">That did not work</h3>
+        <p id="fail-text"></p>
+        <div class="actions">
+          <button class="primary" id="retry-btn">Try again</button>
+          <a class="ghost" href="#help" style="text-decoration:none">Help</a>
+        </div>
+      </div>
+
+      <details class="tech" id="tech">
+        <summary>Technical details</summary>
+        <div id="log" class="logbox"><span class="info">Loading…</span></div>
+        <div class="row"><button class="ghost" id="log-copy">Copy</button></div>
+      </details>
     </div>
-  </details>
+  </section>
 
-  <div class="divider"></div>
+  <section id="help">
+    <h2 class="section-title">If something goes wrong</h2>
+    <p class="section-sub">Nothing here can break the phone for good — every step can be repeated.</p>
+    <div class="help">
+      <details>
+        <summary>The phone does not show up in the list</summary>
+        <div>
+          <p>Make sure the cable is in the <strong>side</strong> port marked <strong>P4.U</strong>
+            and that it is a data cable; many cables only charge. Try another one if in doubt.</p>
+          <p>Close any other program that might be using the phone (Arduino, a serial monitor).
+            Still nothing? Open “For tinkerers” below and tick “Show every device”.</p>
+        </div>
+      </details>
+      <details>
+        <summary>It cannot connect, or stops half-way</summary>
+        <div>
+          <p>Put the phone into install mode by hand: <strong>hold BOOT, press and release RST,
+            then let go of BOOT</strong>. The screen stays dark. Then click Install again.</p>
+          <p>An interrupted install is harmless: the phone simply waits for the next one.</p>
+        </div>
+      </details>
+      <details>
+        <summary>The screen stays dark afterwards</summary>
+        <div>
+          <p>Do a full power cycle: unplug USB, switch the battery <strong>off</strong>, wait five
+            seconds, switch it back on and press the power button.</p>
+          <p>A nearly empty battery also makes it switch off right away — charge it for a while.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Wi-Fi does not switch on</summary>
+        <div>
+          <p>Early phones left the factory with different firmware on their Wi-Fi chip.
+            SurvivalOS replaces it by itself: <strong>Settings → WLAN</strong>, switch WLAN on and
+            tap <strong>Update now</strong>. It takes about a minute and is needed only once.</p>
+          <p>If it asks for the Wi-Fi chip's BOOT button, hold it, tap Continue, then let go.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Which phone is this for?</summary>
+        <div>
+          <p>The <strong>LILYGO T-Display-P4 V1.0</strong> (ESP32-P4, chip revision 1.x). The page
+            checks the chip before writing anything and refuses other boards.</p>
+          <p>This is an early version: it runs on real hardware but is still growing.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How do I go back to the original firmware?</summary>
+        <div>
+          <p>Download the file ending in <code>-merged.bin</code> for
+            <code>t-display-p4-device-v1.0-esp32p4-rev1.0</code> from the
+            <a href="https://github.com/Xinyuan-LILYGO/lilygobox-espidf/releases" target="_blank" rel="noopener">LILYGO releases page</a>,
+            then install it under “For tinkerers” below.</p>
+        </div>
+      </details>
+    </div>
 
-  <h2>Serial monitor</h2>
-  <p>Shows what the device prints (115200 baud). Connecting restarts the device
-     so the whole boot log is captured.</p>
-  <div class="row">
-    <button id="mon-btn" class="secondary">Connect</button>
-    <button id="mon-reset" class="secondary" disabled>Restart device</button>
-    <button id="mon-copy" class="secondary">Copy log</button>
-    <button id="mon-clear" class="secondary">Clear</button>
-  </div>
-  <div id="serlog" class="logbox">Serial monitor idle.</div>
-
-  <div class="footer">
-    SurvivalOS is an unofficial fork of LILYGO's
-    <a href="https://github.com/Xinyuan-LilyGO/lilygobox-espidf" target="_blank" rel="noopener">lilygobox-espidf</a>,
-    licensed GPL-3.0. Not affiliated with LILYGO.<br>
-    <a href="https://github.com/jenda001224-beep/SurvivalOS-P4" target="_blank" rel="noopener">Source code of this exact firmware</a>
-    · esptool-js 0.6.0 (Apache-2.0), vendored.
-  </div>
+    <details class="tinker">
+      <summary>For tinkerers</summary>
+      <div class="panel">
+        <div class="block">
+          <h4>Install a firmware file</h4>
+          <p>For example LILYGO's factory firmware. It is checked the same way before anything is written.</p>
+          <div class="row">
+            <input type="file" id="custom-file" accept=".bin">
+            <button id="custom-btn" class="ghost" disabled>Install this file</button>
+          </div>
+          <label class="opt-line"><input type="checkbox" id="opt-allports">
+            <span>Show every device in the browser's list, not only the phone's USB chip (WCH CH343).</span></label>
+        </div>
+        <div class="block">
+          <h4>Serial monitor</h4>
+          <p>Shows what the phone prints (115200 baud). Connecting restarts it, so the whole start-up is captured.</p>
+          <div class="row">
+            <button id="mon-btn" class="ghost">Connect</button>
+            <button id="mon-reset" class="ghost" disabled>Restart phone</button>
+            <button id="mon-copy" class="ghost">Copy</button>
+            <button id="mon-clear" class="ghost">Clear</button>
+          </div>
+          <div id="serlog" class="logbox">Serial monitor idle.</div>
+        </div>
+      </div>
+    </details>
+  </section>
 </div>
+
+<footer>
+  <div class="wrap">
+    SurvivalOS is an unofficial fork of LILYGO's
+    <a href="https://github.com/Xinyuan-LILYGO/lilygobox-espidf" target="_blank" rel="noopener">lilygobox-espidf</a>,
+    licensed GPL-3.0, and not affiliated with LILYGO.
+    <a href="https://github.com/jenda001224-beep/SurvivalOS-P4" target="_blank" rel="noopener">Source code of this exact firmware</a>.
+    Installs with esptool-js 0.6.0 (Apache-2.0), served from this site.
+  </div>
+</footer>
 
 <script type="module">
 // esptool-js is vendored so flashing never depends on a CDN. The exact version
@@ -212,21 +558,29 @@ const FIRST_UNSUPPORTED_REV = 300;
 // So the fast attempt may fail by design, and the 115200 attempt — which never
 // reopens the port — is the one that must always work.
 const ATTEMPTS = [
-  { baud: 460800, block: 0x4000, label: "fast" },
-  { baud: 115200, block: 0x1000, label: "safe" },
+  { baud: 460800, block: 0x4000, label: "fast", minutes: 2 },
+  { baud: 115200, block: 0x1000, label: "safe", minutes: 6 },
 ];
 const ROM_BAUD = 115200;
 const WCH_VENDOR_ID = 0x1A86;        // CH343P
+// Seconds the read-back check and the restart take after the last byte.
+const FINISH_SECONDS = 6;
+const RING_LENGTH = 534.07;          // 2 * pi * r for the progress ring
 
 const $ = (id) => document.getElementById(id);
 const flashBtn = $("flash-btn"), customBtn = $("custom-btn"), customFile = $("custom-file");
-const logBox = $("log"), progressWrap = $("progress-wrap"), progressBar = $("progress-bar");
+const logBox = $("log");
 const progressText = $("progress-text"), progressPct = $("progress-pct");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const hex = (n) => "0x" + n.toString(16);
+const now = () => performance.now();
 
 let official = null;      // { manifest, bytes } once downloaded and verified
 let busy = false;
+
+// ─── What the person sees ────────────────────────────────────────────────────
+// The technical log stays for whoever wants it; everyone else gets a stage, a
+// percentage and an estimate of the time left.
 
 function addLog(message, cls = "") {
   const line = document.createElement("div");
@@ -236,11 +590,65 @@ function addLog(message, cls = "") {
   logBox.scrollTop = logBox.scrollHeight;
 }
 function clearLog() { logBox.textContent = ""; }
+
+const SCREENS = ["screen-ready", "screen-working", "screen-done", "screen-failed"];
+function showScreen(name) {
+  for (const id of SCREENS) $(id).hidden = id !== name;
+}
+
+const STAGES = ["connect", "write", "verify", "restart"];
+function setStage(current) {
+  const at = STAGES.indexOf(current);
+  STAGES.forEach((stage, index) => {
+    const item = $("stage-" + stage);
+    item.classList.remove("active");
+    item.classList.remove("done");
+    if (index < at) item.classList.add("done");
+    else if (index === at) item.classList.add("active");
+  });
+}
+
 function setProgress(percent, label) {
-  progressBar.style.width = percent + "%";
-  progressPct.textContent = Math.round(percent) + "%";
+  const clamped = Math.max(0, Math.min(100, percent));
+  $("ring-bar").style.strokeDashoffset = String(RING_LENGTH * (1 - clamped / 100));
+  progressPct.textContent = String(Math.round(clamped));
   progressText.textContent = label;
 }
+function setDetail(text) { $("status-detail").textContent = text; }
+function setEta(text) { $("eta").textContent = text; }
+
+function describeSeconds(seconds) {
+  if (seconds < 15) return "A few seconds left";
+  if (seconds < 60) return `About ${Math.ceil(seconds / 5) * 5} seconds left`;
+  const rounded = Math.round(seconds / 10) * 10;
+  const minutes = Math.floor(rounded / 60), rest = rounded % 60;
+  if (minutes >= 3) return `About ${Math.round(seconds / 60)} minutes left`;
+  return rest ? `About ${minutes} min ${rest} s left` : `About ${minutes} min left`;
+}
+
+// Time left from the speed seen so far, smoothed so it does not jump around.
+const eta = { start: 0, startFraction: 0, seconds: 0 };
+function resetEta(attempt) {
+  eta.start = 0; eta.startFraction = 0; eta.seconds = 0;
+  setEta(`Usually about ${attempt.minutes} minutes`);
+}
+function updateEta(fraction) {
+  const t = now();
+  if (!eta.start) { eta.start = t; eta.startFraction = fraction; return; }
+  const elapsed = (t - eta.start) / 1000, gained = fraction - eta.startFraction;
+  if (elapsed < 2 || gained < 0.01) return;
+  const estimate = (1 - fraction) * elapsed / gained + FINISH_SECONDS;
+  eta.seconds = eta.seconds ? eta.seconds * 0.8 + estimate * 0.2 : estimate;
+  setEta(describeSeconds(eta.seconds));
+}
+
+function fail(title, text) {
+  $("fail-title").textContent = title;
+  $("fail-text").textContent = text;
+  showScreen("screen-failed");
+  $("tech").open = true;
+}
+
 function setBusy(value) {
   busy = value;
   flashBtn.disabled = value || !official;
@@ -389,12 +797,18 @@ async function flashOnce(port, fileArray, attempt, totalBytes) {
   let wroteAnything = false;
   try {
     addLog(`Connecting (${attempt.label} mode, ${attempt.baud} baud)…`);
+    setStage("connect");
+    setProgress(3, "Connecting to your phone…");
+    resetEta(attempt);
     await esploader.main();
 
     const chipName = esploader.chip.CHIP_NAME;
     if (chipName !== "ESP32-P4") {
       const error = new Error(`This is a ${chipName}, not an ESP32-P4 — wrong port or wrong device. Nothing was written.`);
       error.fatal = true;
+      error.friendly = ["That is not a T-Display-P4",
+        "The device you picked is a different board, so nothing was changed on it. " +
+        "Click Try again and choose the phone (USB Single Serial)."];
       throw error;
     }
     const revision = await esploader.chip.getChipRevision(esploader);
@@ -403,6 +817,9 @@ async function flashOnce(port, fileArray, attempt, totalBytes) {
       const error = new Error(`This chip is revision v${Math.floor(revision / 100)}.${revision % 100}. ` +
         `This firmware is built for revision 1.x (T-Display-P4 V1.0) and would not boot. Nothing was written.`);
       error.fatal = true;
+      error.friendly = ["This phone is a newer model",
+        "SurvivalOS is built for the T-Display-P4 V1.0, and this one has a newer chip it would not " +
+        "start on. Nothing was changed."];
       throw error;
     }
 
@@ -410,6 +827,9 @@ async function flashOnce(port, fileArray, attempt, totalBytes) {
     const done = new Array(fileArray.length).fill(0);
     const sizes = new Array(fileArray.length).fill(0);
     wroteAnything = true;
+    setStage("write");
+    setProgress(5, "Preparing the phone's memory…");
+    setDetail("Clearing space for the new system.");
     await esploader.writeFlash({
       fileArray,
       // The image already carries the right header (16 MB, DIO, 40 MHz).
@@ -427,12 +847,19 @@ async function flashOnce(port, fileArray, attempt, totalBytes) {
           const share = fileArray[i].data.length / totalBytes;
           fraction += share * (sizes[i] ? done[i] / sizes[i] : 0);
         }
-        setProgress(5 + fraction * 90, "Writing firmware…");
+        setProgress(5 + fraction * 90, "Installing SurvivalOS");
+        setDetail("Writing the new system to the phone.");
+        updateEta(fraction);
       },
     });
-    setProgress(98, "Verified. Restarting…");
+    setStage("verify");
+    setProgress(97, "Checking the installation…");
+    setEta("A few seconds left");
+    setDetail("The phone confirmed that every byte arrived intact.");
     addLog("Firmware written and verified (MD5 read back from the device).", "ok");
 
+    setStage("restart");
+    setProgress(99, "Restarting the phone…");
     try {
       await resetIntoFirmware(transport);
       addLog("Device restarted.", "ok");
@@ -452,8 +879,11 @@ async function runFlash(bytes, name, clean) {
   if (busy) return;
   setBusy(true);
   clearLog();
-  progressWrap.style.display = "block";
-  setProgress(0, "Checking image…");
+  showScreen("screen-working");
+  setStage("connect");
+  setEta("");
+  setDetail("");
+  setProgress(0, "Getting ready…");
   try {
     checkMergedImage(bytes, name);
     const fileArray = planWrite(bytes, clean);
@@ -462,19 +892,21 @@ async function runFlash(bytes, name, clean) {
     addLog(clean ? "Clean install: writing the whole image at 0x0."
                  : "Keeping settings: writing bootloader, partition table, otadata and app.", "info");
 
+    setProgress(1, "Choose the phone in the list…");
+    setDetail("It is called USB Single Serial.");
     let port;
     try {
       port = await navigator.serial.requestPort(portRequestOptions());
     } catch (error) {
       addLog("No port selected — nothing was written.", "info");
-      setProgress(0, "Cancelled.");
+      showScreen("screen-ready");
       return;
     }
 
     let lastError = null;
     for (let i = 0; i < ATTEMPTS.length; i++) {
       try {
-        setProgress(3, "Connecting…");
+        setDetail(i === 0 ? "" : "Using the slower, more careful route this time.");
         await flashOnce(port, fileArray, ATTEMPTS[i], totalBytes);
         lastError = null;
         break;
@@ -485,6 +917,9 @@ async function runFlash(bytes, name, clean) {
         if (i + 1 < ATTEMPTS.length) {
           addLog(`That is expected on some computers with this board. Retrying in ` +
                  `${ATTEMPTS[i + 1].label} mode — slower (about 5 minutes), but it does not reopen the port.`, "info");
+          setProgress(3, "Trying again, more carefully…");
+          setDetail("Some computers need the slower route with this phone. Nothing is wrong.");
+          setEta(`Usually about ${ATTEMPTS[i + 1].minutes} minutes`);
           await sleep(1200);
         }
       }
@@ -492,22 +927,35 @@ async function runFlash(bytes, name, clean) {
     if (lastError) throw lastError;
 
     setProgress(100, "Done");
+    setEta("");
     addLog("Done. SurvivalOS is starting — the first boot takes a few seconds.", "ok");
+    $("done-build").textContent = "";
     if (official && bytes === official.bytes && official.manifest.build) {
       addLog(`To confirm it took: swipe down from the top edge of the device. ` +
              `The panel must say “SurvivalOS build ${official.manifest.build}”.`, "info");
+      $("done-build").textContent = `To check: swipe down from the top of the screen — the panel ` +
+        `says “SurvivalOS build ${official.manifest.build}”.`;
     }
     addLog("If the screen stays black, see “The screen stays black after flashing” below.", "info");
+    showScreen("screen-done");
   } catch (error) {
     addLog("Error: " + error.message, "err");
     if (error.wroteAnything) {
       addLog("The write was interrupted, so the device may not boot until it is flashed again. " +
              "That is harmless: hold BOOT, tap RST, release BOOT, and click Flash once more.", "info");
-    } else if (!error.fatal) {
+      fail("The installation stopped half-way",
+        "Your phone is fine — it just needs the installation once more. If it does not respond: " +
+        "hold BOOT, press and release RST, let go of BOOT, then click Try again.");
+    } else if (error.friendly) {
+      fail(error.friendly[0], error.friendly[1]);
+    } else {
       addLog("Nothing was written. If the device was not detected: hold BOOT, tap RST, " +
              "release BOOT, then click Flash again.", "info");
+      fail("Could not reach the phone",
+        "Nothing was changed. Check that the cable carries data and sits in the side port " +
+        "marked P4.U. If it still does not work: hold BOOT, press and release RST, let go of " +
+        "BOOT, then click Try again.");
     }
-    setProgress(0, "Failed");
   } finally {
     setBusy(false);
   }
@@ -518,7 +966,8 @@ async function runFlash(bytes, name, clean) {
 async function loadOfficial() {
   clearLog();
   if (!("serial" in navigator)) {
-    $("no-serial-warn").style.display = "block";
+    $("no-serial-warn").hidden = false;
+    $("fw-version").textContent = "Needs Chrome or Edge on a computer";
     addLog("Web Serial is not available in this browser.", "err");
     $("mon-btn").disabled = true;
     return;
@@ -528,8 +977,7 @@ async function loadOfficial() {
     const manifestResponse = await fetch(MANIFEST_URL + stamp, { cache: "no-store" });
     if (!manifestResponse.ok) throw new Error(`manifest.json: HTTP ${manifestResponse.status}`);
     const manifest = await manifestResponse.json();
-    $("fw-version").textContent =
-      `${manifest.name} · build ${manifest.build || manifest.generated} · ${(manifest.size / 1048576).toFixed(1)} MB`;
+    $("fw-version").textContent = `Downloading build ${manifest.build || manifest.generated}…`;
 
     addLog(`Downloading ${manifest.image}…`, "info");
     const response = await fetch(manifest.image + stamp, { cache: "no-store" });
@@ -544,16 +992,26 @@ async function loadOfficial() {
     }
     checkMergedImage(bytes, manifest.image);
     official = { manifest, bytes };
+    $("fw-version").textContent =
+      `Build ${manifest.build || manifest.generated} · ${(manifest.size / 1048576).toFixed(1)} MB · ready`;
+    $("build-chip").classList.add("ready");
     addLog(`Firmware ready: ${bytes.length} bytes, SHA-256 and image checks passed.`, "ok");
     addLog("Plug the device into the P4.U port and click Flash.", "info");
   } catch (error) {
+    $("fw-version").textContent = "Could not download the firmware — reload the page";
     addLog("Could not load the firmware: " + error.message, "err");
   }
   setBusy(false);
 }
 
-flashBtn.addEventListener("click", () => {
+function startOfficial() {
   if (official) runFlash(official.bytes, official.manifest.image, $("opt-clean").checked);
+}
+flashBtn.addEventListener("click", startOfficial);
+$("retry-btn").addEventListener("click", startOfficial);
+$("again-btn").addEventListener("click", () => showScreen("screen-ready"));
+$("log-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(logBox.textContent); } catch (error) {}
 });
 customFile.addEventListener("change", () => { customBtn.disabled = busy || !customFile.files.length; });
 customBtn.addEventListener("click", async () => {
@@ -561,6 +1019,7 @@ customBtn.addEventListener("click", async () => {
   if (!file) return;
   // A factory image is always written whole: it is a different firmware, so
   // its settings should start from scratch too.
+  location.hash = "#install";
   runFlash(new Uint8Array(await file.arrayBuffer()), file.name, true);
 });
 
@@ -654,7 +1113,7 @@ $("mon-copy").addEventListener("click", async () => {
 });
 
 // Exposed for the self-test in tools/test_flasher.mjs.
-window.__flasher = { md5, checkMergedImage, planWrite, readImageHeader };
+window.__flasher = { md5, checkMergedImage, planWrite, readImageHeader, describeSeconds };
 
 loadOfficial();
 </script>

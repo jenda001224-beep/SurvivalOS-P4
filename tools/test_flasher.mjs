@@ -284,16 +284,31 @@ async function waitUntil(predicate, timeoutMs, what) {
 const same = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.length), Buffer.from(b.buffer, b.byteOffset, b.length)) === 0;
 const allEqual = (bytes, value) => bytes.every((b) => b === value);
 
+// What the friendly layer showed while the last flash ran, caught as it is set
+// rather than sampled, since the simulated board finishes some stages at once.
+let seen = { eta: [], titles: [] };
+function record(id, list) {
+  const target = element(id);
+  Object.defineProperty(target, "textContent", {
+    configurable: true,
+    get() { return this._text + this.children.map((c) => c.textContent).join("\n"); },
+    set(value) { this._text = value; this.children = []; if (value) seen[list].push(value); },
+  });
+}
+record("eta", "eta");
+record("progress-text", "titles");
 async function flash(board, { clean }) {
   nextBoard = board;
   element("opt-clean").checked = clean;
   element("opt-allports").checked = false;
+  seen = { eta: [], titles: [] };
   const run = element("flash-btn").handlers.click();
   await sleep(50);
   await waitUntil(() => !element("flash-btn").disabled, 180000, "the flash to finish");
   await run;
   return logText();
 }
+const visible = (id) => element(id).hidden === false;
 
 console.log("start-up");
 await waitUntil(() => !element("flash-btn").disabled, 20000, "firmware to load");
@@ -326,6 +341,10 @@ console.log("scenario 1: Mac-like host (RTS asserted on open), clean install");
   const board = new FakeBoard({ revision: 100, rtsAssertedOnOpen: true });
   const log = await flash(board, { clean: true });
   check(/Done\. SurvivalOS is starting/.test(log), "page reports success");
+  check(visible("screen-done") && !visible("screen-working") && !visible("screen-failed"), "success screen shown");
+  check(seen.eta.some((text) => /minutes|left/.test(text)), "an estimate of the time left was shown");
+  check(seen.titles.includes("Installing SurvivalOS") && seen.titles.includes("Trying again, more carefully…"),
+      "plain-language stages, including the fallback, were shown");
   check(lastPortOptions?.filters?.[0]?.usbVendorId === 0x1A86, "port picker is filtered to the CH343 vendor id");
   check(/fast mode did not work/.test(log) && /Retrying in safe mode/.test(log), "fast attempt failed and fell back to safe mode");
   check(board.events.includes(`stub:text=0x${REV1_STUB_TEXT_START.toString(16)},entry=0x${REV1_STUB_ENTRY.toString(16)}`), "rev <3 stub was uploaded");
@@ -358,6 +377,7 @@ console.log("scenario 3: chip revision 3.1 (not this board)");
   const board = new FakeBoard({ revision: 301, rtsAssertedOnOpen: false });
   const log = await flash(board, { clean: true });
   check(/built for revision 1\.x/.test(log) && /Nothing was written/.test(log), "page refuses and says nothing was written");
+  check(visible("screen-failed") && element("fail-title").textContent === "This phone is a newer model", "refusal explained on the failure screen");
   check(allEqual(board.flash, OLD_FIRMWARE_FILL), "flash is untouched");
   check(!/Retrying/.test(log), "did not retry after a definitive refusal");
 }
@@ -369,6 +389,15 @@ console.log("scenario 4: device stores a corrupted byte");
   check(/MD5 of file does not match/.test(log), "MD5 read-back catches the corruption");
   check(!/Done\. SurvivalOS is starting/.test(log), "page does not claim success");
   check(/flashed again/.test(log), "page explains that re-flashing fixes it");
+  check(visible("screen-failed") && /half-way/.test(element("fail-title").textContent), "failure screen says the install stopped half-way");
+}
+
+console.log("time-left wording");
+{
+  const say = window.__flasher.describeSeconds;
+  check(say(8) === "A few seconds left" && say(32) === "About 35 seconds left" &&
+      say(75) === "About 1 min 20 s left" && say(118) === "About 2 min left" && say(500) === "About 8 minutes left",
+      "seconds turn into plain words");
 }
 
 console.log("scenario 5: serial monitor");
