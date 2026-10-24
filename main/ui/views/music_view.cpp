@@ -31,6 +31,9 @@
 #include "freertos/task.h"
 #include "hal/providers/audio_provider.h"
 #include "hal/providers/storage_provider.h"
+#include "misc/cache/instance/lv_image_cache.h"
+#include "survival/jpeg_image.h"
+#include "esp_heap_caps.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/input/back_navigation_controller.h"
 #include "ui/input/press_cancel.h"
@@ -78,6 +81,8 @@ constexpr int kMusicSourcesAddTop = 98;
 constexpr int kMusicSourcesListTop = 174;
 constexpr int kMusicLibraryTop = 226;
 constexpr int kMusicTrackRowHeight = 104;
+constexpr int kMusicSectionHeight = 52;
+constexpr uint32_t kCoverTimerMs = 40;
 constexpr uint32_t kPlaybackStatusIntervalMs = 250;
 constexpr uint32_t kMusicScanStartDelayMs = 850;
 constexpr uint32_t kMusicScanTaskStackBytes = 8 * 1024;
@@ -107,6 +112,7 @@ struct MusicViewState;
 struct MusicScanJob {
   std::vector<std::string> source_paths;
   std::vector<app::MusicTrack> tracks;
+  std::vector<app::MusicPlaylist> playlists;
   std::atomic<bool> completed{false};
   bool success = false;
 };
@@ -119,6 +125,10 @@ struct MusicPlaybackSession {
   hal::StorageProvider* storage = nullptr;
   MusicViewState* view = nullptr;
   std::vector<app::MusicTrack> tracks;
+  // SurvivalOS: playlists, and the order playback follows (a playlist's, or
+  // empty for the whole library).
+  std::vector<app::MusicPlaylist> playlists;
+  std::vector<size_t> queue;
   std::shared_ptr<MusicScanJob> scan_job;
   lv_timer_t* status_timer = nullptr;
   int current_track = -1;
@@ -127,6 +137,8 @@ struct MusicPlaybackSession {
   bool storage_was_mounted = false;
   bool library_initialized = false;
   MusicPlaybackMode playback_mode = MusicPlaybackMode::kRepeatAll;
+  // SurvivalOS: bumped by every track start, for the lock screen player.
+  uint32_t track_serial = 0;
 };
 
 struct MusicViewState {
@@ -158,6 +170,23 @@ struct MusicViewState {
   lv_timer_t* scan_start_timer = nullptr;
   bool seeking = false;
   bool settings_closing = false;
+  // SurvivalOS: cover art. Rows get theirs a few at a time from a timer, only
+  // while the list stands still; the player and mini player at once.
+  struct PendingCover {
+    lv_obj_t* artwork = nullptr;
+    lv_obj_t* scroller = nullptr;
+    size_t track = 0;
+  };
+  std::vector<PendingCover> pending_covers;
+  // Row actions of the open playlist page, kept apart from the library's so a
+  // library refresh cannot free them under the page.
+  std::vector<std::unique_ptr<MusicTrackAction>> playlist_actions;
+  lv_timer_t* cover_timer = nullptr;
+  lv_obj_t* mini_artwork = nullptr;
+  lv_obj_t* player_artwork = nullptr;
+  lv_obj_t* playlist_page = nullptr;
+  lv_obj_t* playlist_list = nullptr;
+  int open_playlist = -1;
 };
 
 /**
@@ -172,6 +201,8 @@ MusicPlaybackSession* GetMusicPlaybackSession() {
 struct MusicTrackAction {
   MusicViewState* state = nullptr;
   size_t track_index = 0;
+  // SurvivalOS: the playlist the row belongs to, or -1 for the library.
+  int playlist = -1;
 };
 
 struct MusicSourceAction {
@@ -721,6 +752,7 @@ void PlayerCloseCompletedCallback(lv_anim_t* animation) {
   state->playback_mode_label = nullptr;
   state->player_title_label = nullptr;
   state->player_artist_label = nullptr;
+  state->player_artwork = nullptr;
   state->progress_slider = nullptr;
   state->current_time_label = nullptr;
   state->total_time_label = nullptr;
@@ -861,6 +893,8 @@ void NextTrackClickedEventCallback(lv_event_t* event) {
   lv_event_stop_bubbling(event);
 }
 
+void SetArtworkCover(lv_obj_t* artwork, const app::MusicTrack* track);
+
 const app::MusicTrack* CurrentMusicTrack(const MusicPlaybackSession* session) {
   if (session == nullptr || session->current_track < 0 ||
       session->current_track >= static_cast<int>(session->tracks.size())) {
@@ -893,6 +927,8 @@ void UpdateCurrentTrackLabels(MusicViewState* state) {
   }
   SetMusicTimeLabel(
       state->total_time_label, static_cast<int>(track->duration_ms / 1000U));
+  SetArtworkCover(state->mini_artwork, track);
+  SetArtworkCover(state->player_artwork, track);
 }
 
 /**
@@ -945,6 +981,7 @@ bool StartMusicTrack(MusicPlaybackSession* session, size_t track_index) {
   }
   session->current_track = static_cast<int>(track_index);
   session->completion_handled = false;
+  ++session->track_serial;
   MusicViewState* state = session->view;
   if (state != nullptr) {
     SetMiniPlayerVisible(state, true);
@@ -961,6 +998,29 @@ bool StartMusicTrack(MusicPlaybackSession* session, size_t track_index) {
 bool PlayAdjacentMusicTrack(MusicPlaybackSession* session, int direction) {
   if (session == nullptr || session->tracks.empty()) {
     return false;
+  }
+  // SurvivalOS: inside a playlist, next and previous follow its order.
+  if (!session->queue.empty()) {
+    const int count = static_cast<int>(session->queue.size());
+    int position = -1;
+    for (int i = 0; i < count; ++i) {
+      if (static_cast<int>(session->queue[i]) == session->current_track) {
+        position = i;
+        break;
+      }
+    }
+    int next = 0;
+    if (session->playback_mode == MusicPlaybackMode::kShuffle && count > 1) {
+      do {
+        next = static_cast<int>(esp_random() % static_cast<uint32_t>(count));
+      } while (next == position);
+    } else if (position >= 0) {
+      next = (position + direction + count) % count;
+    }
+    if (session->queue[next] < session->tracks.size()) {
+      return StartMusicTrack(session, session->queue[next]);
+    }
+    session->queue.clear();
   }
   size_t track_index = 0;
   if (session->playback_mode == MusicPlaybackMode::kShuffle &&
@@ -1127,6 +1187,123 @@ lv_obj_t* CreateArtwork(lv_obj_t* parent, int size, int radius) {
   return artwork;
 }
 
+// ── SurvivalOS: cover art ────────────────────────────────────────────────────
+
+// Decoded cover owned by its image object; freed with it.
+struct CoverHolder {
+  survival::JpegImage image;
+  lv_image_dsc_t descriptor = {};
+};
+
+void CoverImageDeletedEventCallback(lv_event_t* event) {
+  auto* holder = static_cast<CoverHolder*>(lv_event_get_user_data(event));
+  if (holder == nullptr) {
+    return;
+  }
+  lv_image_cache_drop(&holder->descriptor);
+  survival::FreeJpegImage(&holder->image);
+  delete holder;
+}
+
+constexpr uint32_t kMaxCoverBytes = 4 * 1024 * 1024;
+
+/**
+ * @brief Decodes a track's cover, embedded or beside the file, filling a
+ *        square box.
+ */
+bool LoadTrackCover(const app::MusicTrack& track, uint32_t box,
+    survival::JpegImage* image) {
+  if (!track.cover_path.empty()) {
+    return survival::LoadJpegThumbnail(track.cover_path.c_str(), box, image);
+  }
+  if (track.cover_size == 0 || track.cover_size > kMaxCoverBytes) {
+    return false;
+  }
+  FILE* file = fopen(track.path.c_str(), "rb");
+  if (file == nullptr) {
+    return false;
+  }
+  auto* data = static_cast<uint8_t*>(
+      heap_caps_malloc(track.cover_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  bool ok = data != nullptr &&
+      fseek(file, static_cast<long>(track.cover_offset), SEEK_SET) == 0 &&
+      fread(data, 1, track.cover_size, file) == track.cover_size;
+  fclose(file);
+  if (ok) {
+    ok = survival::DecodeJpegThumbnail(data, track.cover_size, box, image);
+  }
+  heap_caps_free(data);
+  return ok;
+}
+
+/**
+ * @brief Puts a track's cover into an artwork box, or the note icon back
+ *        when it has none.
+ * @param artwork Box from CreateArtwork().
+ * @param track Track, or nullptr for the placeholder.
+ */
+void SetArtworkCover(lv_obj_t* artwork, const app::MusicTrack* track) {
+  if (artwork == nullptr) {
+    return;
+  }
+  lv_obj_t* icon_label = nullptr;
+  for (int32_t i = static_cast<int32_t>(lv_obj_get_child_count(artwork)) - 1; i >= 0; --i) {
+    lv_obj_t* child = lv_obj_get_child(artwork, i);
+    if (lv_obj_check_type(child, &lv_image_class)) {
+      lv_obj_delete(child);
+    } else {
+      icon_label = child;
+    }
+  }
+  if (icon_label != nullptr) {
+    lv_obj_remove_flag(icon_label, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (track == nullptr) {
+    return;
+  }
+  lv_obj_update_layout(artwork);
+  const int32_t size = std::max<int32_t>(1, lv_obj_get_width(artwork));
+  auto* holder = new (std::nothrow) CoverHolder();
+  if (holder == nullptr) {
+    return;
+  }
+  if (!LoadTrackCover(*track, static_cast<uint32_t>(size), &holder->image)) {
+    delete holder;
+    return;
+  }
+  holder->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+  holder->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
+  holder->descriptor.header.w = holder->image.width;
+  holder->descriptor.header.h = holder->image.height;
+  holder->descriptor.header.stride = holder->image.width * 2;
+  holder->descriptor.data = holder->image.pixels;
+  holder->descriptor.data_size = holder->image.width * holder->image.height * 2;
+  lv_obj_t* image = lv_image_create(artwork);
+  if (image == nullptr) {
+    survival::FreeJpegImage(&holder->image);
+    delete holder;
+    return;
+  }
+  lv_obj_add_event_cb(image, CoverImageDeletedEventCallback, LV_EVENT_DELETE, holder);
+  lv_image_set_src(image, &holder->descriptor);
+  // A cover smaller than the box (a small JPEG) is stretched to fill it.
+  if (static_cast<int32_t>(holder->image.width) < size) {
+    lv_image_set_scale(image, static_cast<uint32_t>(256 * size / std::max<uint32_t>(1, holder->image.width)));
+  }
+  lv_obj_set_size(image, size, size);
+  lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CENTER);
+  lv_obj_center(image);
+  if (icon_label != nullptr) {
+    lv_obj_add_flag(icon_label, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+bool TrackHasCover(const app::MusicTrack& track) {
+  return track.cover_size > 0 || !track.cover_path.empty();
+}
+
+void QueueCover(MusicViewState* state, lv_obj_t* artwork, lv_obj_t* scroller, size_t track);
+
 /**
  * @brief 创建播放详情页
  * @param state 音乐视图状态
@@ -1277,6 +1454,11 @@ bool CreatePlayerPage(MusicViewState* state) {
     } else {
       lv_obj_align(artwork, LV_ALIGN_TOP_MID, 0, artwork_y);
     }
+    // Rounded corners on the cover itself; one big image, so the clipping
+    // layer costs little.
+    lv_obj_set_style_clip_corner(artwork, true, LV_PART_MAIN);
+    state->player_artwork = artwork;
+    SetArtworkCover(artwork, CurrentMusicTrack(state->session));
   }
 
   state->player_title_label = CreateLabel(page, "Unknown Track",
@@ -1471,6 +1653,10 @@ void MusicViewDeleteEventCallback(lv_event_t* event) {
   }
   auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
   StopMusicScanStartTimer(state);
+  if (state != nullptr && state->cover_timer != nullptr) {
+    lv_timer_delete(state->cover_timer);
+    state->cover_timer = nullptr;
+  }
   if (state != nullptr && state->session != nullptr &&
       state->session->view == state) {
     state->session->view = nullptr;
@@ -1582,6 +1768,8 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
   lv_obj_t* artwork = CreateArtwork(card, 72, 14);
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_clip_corner(artwork, true, LV_PART_MAIN);
+    state->mini_artwork = artwork;
   }
   state->mini_title_label = CreateLabel(card, "Unknown Track",
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font24());
@@ -2141,7 +2329,16 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
   if (action == nullptr || action->state == nullptr) {
     return;
   }
-  StartMusicTrack(action->state->session, action->track_index);
+  MusicPlaybackSession* session = action->state->session;
+  if (session != nullptr) {
+    if (action->playlist >= 0 &&
+        action->playlist < static_cast<int>(session->playlists.size())) {
+      session->queue = session->playlists[action->playlist].tracks;
+    } else {
+      session->queue.clear();
+    }
+  }
+  StartMusicTrack(session, action->track_index);
   lv_event_stop_bubbling(event);
 }
 
@@ -2152,14 +2349,22 @@ void MusicTrackClickedEventCallback(lv_event_t* event) {
  * @param y 行顶部坐标
  * @return 创建成功返回 true，否则返回 false
  */
+bool CreateTrackRowIn(MusicViewState* state, lv_obj_t* parent,
+    size_t track_index, int y, int playlist);
+
 bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
-  if (state == nullptr || state->session == nullptr ||
-      state->library_content == nullptr ||
+  return state != nullptr &&
+      CreateTrackRowIn(state, state->library_content, track_index, y, -1);
+}
+
+bool CreateTrackRowIn(MusicViewState* state, lv_obj_t* parent,
+    size_t track_index, int y, int playlist) {
+  if (state == nullptr || state->session == nullptr || parent == nullptr ||
       track_index >= state->session->tracks.size()) {
     return false;
   }
   const app::MusicTrack& track = state->session->tracks[track_index];
-  lv_obj_t* row = lv_button_create(state->library_content);
+  lv_obj_t* row = lv_button_create(parent);
   if (row == nullptr) {
     return false;
   }
@@ -2183,6 +2388,9 @@ bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
   lv_obj_t* artwork = CreateArtwork(row, 72, 14);
   if (artwork != nullptr) {
     lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 24, 0);
+    if (TrackHasCover(track)) {
+      QueueCover(state, artwork, parent, track_index);
+    }
   }
   lv_obj_t* title = CreateLabel(row, track.title.c_str(),
       lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
@@ -2212,11 +2420,294 @@ bool CreateMusicTrackRow(MusicViewState* state, size_t track_index, int y) {
   auto action = std::make_unique<MusicTrackAction>();
   action->state = state;
   action->track_index = track_index;
+  action->playlist = playlist;
   MusicTrackAction* action_pointer = action.get();
-  state->track_actions.push_back(std::move(action));
+  (playlist >= 0 ? state->playlist_actions : state->track_actions)
+      .push_back(std::move(action));
   lv_obj_add_event_cb(
       row, MusicTrackClickedEventCallback, LV_EVENT_CLICKED, action_pointer);
   return true;
+}
+
+// ── SurvivalOS: playlists and lazy covers ───────────────────────────────────
+
+void QueueCover(MusicViewState* state, lv_obj_t* artwork, lv_obj_t* scroller,
+    size_t track) {
+  state->pending_covers.push_back({artwork, scroller, track});
+}
+
+// Drops queued covers of rows inside `scroller`, which is about to be cleaned.
+void ForgetCovers(MusicViewState* state, lv_obj_t* scroller) {
+  auto& list = state->pending_covers;
+  list.erase(std::remove_if(list.begin(), list.end(),
+                 [scroller](const MusicViewState::PendingCover& cover) {
+                   return cover.scroller == scroller;
+                 }),
+      list.end());
+}
+
+// One cover per tick, for a row on screen, and never while the list moves.
+void CoverTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<MusicViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || state->session == nullptr || state->pending_covers.empty()) {
+    return;
+  }
+  for (size_t i = 0; i < state->pending_covers.size(); ++i) {
+    const MusicViewState::PendingCover cover = state->pending_covers[i];
+    if (lv_obj_is_scrolling(cover.scroller)) {
+      return;
+    }
+    lv_area_t box = {};
+    lv_area_t view = {};
+    lv_obj_get_coords(cover.artwork, &box);
+    lv_obj_get_coords(cover.scroller, &view);
+    if (box.y2 < view.y1 || box.y1 > view.y2) {
+      continue;
+    }
+    state->pending_covers.erase(state->pending_covers.begin() + static_cast<long>(i));
+    if (cover.track < state->session->tracks.size()) {
+      SetArtworkCover(cover.artwork, &state->session->tracks[cover.track]);
+    }
+    return;
+  }
+}
+
+void ClosePlaylistPage(MusicViewState* state);
+
+void PlaylistCloseCompletedCallback(lv_anim_t* animation) {
+  auto* state = static_cast<MusicViewState*>(lv_anim_get_user_data(animation));
+  if (state == nullptr || state->playlist_page == nullptr) {
+    return;
+  }
+  lv_obj_t* page = state->playlist_page;
+  ForgetCovers(state, state->playlist_list);
+  state->playlist_page = nullptr;
+  state->playlist_list = nullptr;
+  state->open_playlist = -1;
+  lv_obj_delete(page);
+  state->playlist_actions.clear();
+}
+
+void ClosePlaylistPage(MusicViewState* state) {
+  if (state == nullptr || state->playlist_page == nullptr) {
+    return;
+  }
+  ForgetCovers(state, state->playlist_list);
+  if (!StartSlideRightWindowTransition(state->playlist_page, state->config.width,
+          kSettingsAnimationMs, state, PlaylistCloseCompletedCallback)) {
+    lv_obj_t* page = state->playlist_page;
+    state->playlist_page = nullptr;
+    state->playlist_list = nullptr;
+    state->open_playlist = -1;
+    lv_obj_delete(page);
+    state->playlist_actions.clear();
+  }
+}
+
+void PlaylistBackClickedEventCallback(lv_event_t* event) {
+  ClosePlaylistPage(static_cast<MusicViewState*>(lv_event_get_user_data(event)));
+}
+
+// Play / Shuffle on the playlist page: user data is the state, the button's
+// own user data 1 means shuffle.
+void PlaylistPlayClickedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* button = lv_event_get_target_obj(event);
+  if (state == nullptr || state->session == nullptr || state->open_playlist < 0 ||
+      state->open_playlist >= static_cast<int>(state->session->playlists.size())) {
+    return;
+  }
+  MusicPlaybackSession* session = state->session;
+  const app::MusicPlaylist& playlist = session->playlists[state->open_playlist];
+  if (playlist.tracks.empty()) {
+    return;
+  }
+  const bool shuffle = lv_obj_get_user_data(button) != nullptr;
+  session->queue = playlist.tracks;
+  if (shuffle) {
+    session->playback_mode = MusicPlaybackMode::kShuffle;
+  } else if (session->playback_mode == MusicPlaybackMode::kShuffle) {
+    session->playback_mode = MusicPlaybackMode::kRepeatAll;
+  }
+  UpdatePlaybackModeButton(state);
+  const size_t first = shuffle
+      ? playlist.tracks[esp_random() % playlist.tracks.size()]
+      : playlist.tracks.front();
+  StartMusicTrack(session, first);
+}
+
+lv_obj_t* CreatePillButton(lv_obj_t* parent, const char* icon_text, const char* text,
+    bool filled) {
+  lv_obj_t* button = lv_button_create(parent);
+  lv_obj_set_height(button, 76);
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button,
+      lv_color_hex(filled ? kPrimaryColor : theme::ActiveThemeColors().surface_container_high),
+      LV_PART_MAIN);
+  lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(button, 10, LV_PART_MAIN);
+  CreateLabel(button, icon_text, lv_color_hex(0xFFFFFF), &lvgl_font_material_symbols_fill_32);
+  CreateLabel(button, text, lv_color_hex(0xFFFFFF), Font24());
+  return button;
+}
+
+bool ShowPlaylistPage(MusicViewState* state, int playlist_index) {
+  if (state == nullptr || state->session == nullptr || state->root == nullptr ||
+      playlist_index < 0 ||
+      playlist_index >= static_cast<int>(state->session->playlists.size())) {
+    return false;
+  }
+  if (state->playlist_page != nullptr) {
+    ForgetCovers(state, state->playlist_list);
+    lv_obj_delete(state->playlist_page);
+    state->playlist_page = nullptr;
+    state->playlist_actions.clear();
+  }
+  const app::MusicPlaylist& playlist = state->session->playlists[playlist_index];
+  lv_obj_t* page = lv_obj_create(state->root);
+  if (page == nullptr) {
+    return false;
+  }
+  state->playlist_page = page;
+  state->open_playlist = playlist_index;
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_size(page, state->config.width, state->config.height);
+  lv_obj_set_pos(page, 0, 0);
+  lv_obj_set_style_bg_color(page, lv_color_hex(theme::ActiveThemeColors().surface), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(page, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+  if (!CreateSettingsStyleHeader(page, playlist.name.c_str(),
+          PlaylistBackClickedEventCallback, state)) {
+    lv_obj_delete(page);
+    state->playlist_page = nullptr;
+    return false;
+  }
+  // Big cover of the first song, the name, the count, Play and Shuffle.
+  constexpr int kCoverSize = 240;
+  const int top = 150;
+  lv_obj_t* cover = CreateArtwork(page, kCoverSize, 24);
+  lv_obj_align(cover, LV_ALIGN_TOP_MID, 0, top);
+  lv_obj_set_style_clip_corner(cover, true, LV_PART_MAIN);
+  for (size_t index : playlist.tracks) {
+    if (index < state->session->tracks.size() && TrackHasCover(state->session->tracks[index])) {
+      SetArtworkCover(cover, &state->session->tracks[index]);
+      break;
+    }
+  }
+  char summary[96] = {};
+  if (playlist.missing > 0) {
+    std::snprintf(summary, sizeof(summary), "%u songs on the card, %u missing",
+        static_cast<unsigned>(playlist.tracks.size()), static_cast<unsigned>(playlist.missing));
+  } else {
+    std::snprintf(summary, sizeof(summary), "%u songs", static_cast<unsigned>(playlist.tracks.size()));
+  }
+  lv_obj_t* count = CreateLabel(page, summary,
+      lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
+  lv_obj_align(count, LV_ALIGN_TOP_MID, 0, top + kCoverSize + 14);
+  const int buttons_top = top + kCoverSize + 56;
+  const int button_width = (state->config.width - 3 * 28) / 2;
+  lv_obj_t* play = CreatePillButton(page, icon::kPlayArrow, "Play", true);
+  lv_obj_set_width(play, button_width);
+  lv_obj_set_pos(play, 28, buttons_top);
+  lv_obj_add_event_cb(play, PlaylistPlayClickedEventCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* shuffle = CreatePillButton(page, icon::kShuffle, "Shuffle", false);
+  lv_obj_set_width(shuffle, button_width);
+  lv_obj_set_pos(shuffle, 56 + button_width, buttons_top);
+  lv_obj_set_user_data(shuffle, reinterpret_cast<void*>(1));
+  lv_obj_add_event_cb(shuffle, PlaylistPlayClickedEventCallback, LV_EVENT_CLICKED, state);
+
+  const int list_top = buttons_top + 76 + 18;
+  lv_obj_t* list = lv_obj_create(page);
+  MakeTransparent(list);
+  lv_obj_set_size(list, state->config.width, state->config.height - list_top -
+      (state->session->current_track >= 0 ? kMiniPlayerHeight : 0));
+  lv_obj_set_pos(list, 0, list_top);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  state->playlist_list = list;
+  int y = 0;
+  for (size_t index : playlist.tracks) {
+    CreateTrackRowIn(state, list, index, y, playlist_index);
+    y += kMusicTrackRowHeight;
+  }
+  if (playlist.tracks.empty()) {
+    lv_obj_t* empty = CreateLabel(list,
+        "None of these songs is on the card yet.\nCopy the MP3 files into Music.",
+        lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
+    lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 20);
+  }
+  // The mini player stays above the page.
+  if (state->mini_player != nullptr) {
+    lv_obj_move_foreground(state->mini_player);
+  }
+  StartSlideLeftWindowTransition(page, state->config.width, kSettingsAnimationMs, state, nullptr);
+  RegisterBackNavigationHandler(page, [state]() { ClosePlaylistPage(state); });
+  return true;
+}
+
+void PlaylistRowClickedEventCallback(lv_event_t* event) {
+  auto* state = static_cast<MusicViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* row = lv_event_get_target_obj(event);
+  if (state == nullptr || row == nullptr) {
+    return;
+  }
+  ShowPlaylistPage(state, static_cast<int>(reinterpret_cast<intptr_t>(lv_obj_get_user_data(row))));
+}
+
+int CreatePlaylistRows(MusicViewState* state, int y) {
+  lv_obj_t* heading = CreateLabel(state->library_content, "Playlists",
+      lv_color_hex(kPrimaryColor), Font22());
+  if (heading != nullptr) {
+    lv_obj_set_pos(heading, 28, y + 14);
+  }
+  y += kMusicSectionHeight;
+  for (size_t p = 0; p < state->session->playlists.size(); ++p) {
+    const app::MusicPlaylist& playlist = state->session->playlists[p];
+    lv_obj_t* row = lv_button_create(state->library_content);
+    lv_obj_remove_style_all(row);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_size(row, state->config.width, kMusicTrackRowHeight);
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_style_bg_color(row, lv_color_hex(theme::ActiveThemeColors().state_layer),
+        static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+            static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER,
+        static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+            static_cast<lv_style_selector_t>(LV_STATE_PRESSED));
+    AddPressCancelOnLeave(row);
+    lv_obj_set_user_data(row, reinterpret_cast<void*>(static_cast<intptr_t>(p)));
+    lv_obj_add_event_cb(row, PlaylistRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    lv_obj_t* artwork = CreateArtwork(row, 72, 14);
+    lv_obj_align(artwork, LV_ALIGN_LEFT_MID, 24, 0);
+    for (size_t index : playlist.tracks) {
+      if (index < state->session->tracks.size() && TrackHasCover(state->session->tracks[index])) {
+        QueueCover(state, artwork, state->library_content, index);
+        break;
+      }
+    }
+    lv_obj_t* name = CreateLabel(row, playlist.name.c_str(),
+        lv_color_hex(theme::ActiveThemeColors().on_surface), Font28());
+    lv_obj_set_size(name, state->config.width - 180, 34);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_align(name, LV_ALIGN_TOP_LEFT, 116, 18);
+    char detail[64] = {};
+    std::snprintf(detail, sizeof(detail), "Playlist · %u songs",
+        static_cast<unsigned>(playlist.tracks.size()));
+    lv_obj_t* info = CreateLabel(row, detail,
+        lv_color_hex(theme::ActiveThemeColors().on_surface_variant), Font22());
+    lv_obj_align(info, LV_ALIGN_TOP_LEFT, 116, 57);
+    lv_obj_t* chevron = CreateLabel(row, icon::kChevronRight,
+        lv_color_hex(theme::ActiveThemeColors().on_surface_variant),
+        &lvgl_font_material_symbols_fill_32);
+    lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -24, 0);
+    y += kMusicTrackRowHeight;
+  }
+  return y;
 }
 
 bool RenderMusicLibrary(MusicViewState* state) {
@@ -2224,6 +2715,7 @@ bool RenderMusicLibrary(MusicViewState* state) {
       state->library_content == nullptr) {
     return false;
   }
+  ForgetCovers(state, state->library_content);
   lv_obj_clean(state->library_content);
   lv_obj_scroll_to_y(state->library_content, 0, LV_ANIM_OFF);
   state->track_actions.clear();
@@ -2232,6 +2724,16 @@ bool RenderMusicLibrary(MusicViewState* state) {
   }
 
   int y = 0;
+  // SurvivalOS: playlists first, then every song.
+  if (!state->session->playlists.empty()) {
+    y = CreatePlaylistRows(state, y);
+    lv_obj_t* songs = CreateLabel(state->library_content, "Songs",
+        lv_color_hex(kPrimaryColor), Font22());
+    if (songs != nullptr) {
+      lv_obj_set_pos(songs, 28, y + 14);
+    }
+    y += kMusicSectionHeight;
+  }
   for (size_t index = 0; index < state->session->tracks.size(); ++index) {
     if (!CreateMusicTrackRow(state, index, y)) {
       return false;
@@ -2254,7 +2756,7 @@ void MusicLibraryScanTaskEntry(void* context) {
   }
   std::shared_ptr<MusicScanJob> job = *shared_job;
   delete shared_job;
-  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks, &job->playlists);
   job->completed.store(true, std::memory_order_release);
   vTaskDelete(nullptr);
 }
@@ -2273,6 +2775,9 @@ void FinishMusicLibraryScan(MusicPlaybackSession* session) {
     current_path = current_track->path;
   }
   session->tracks = std::move(job->tracks);
+  session->playlists = std::move(job->playlists);
+  // Indices changed with the new scan; the queue is rebuilt on the next pick.
+  session->queue.clear();
   session->current_track = -1;
   if (!current_path.empty()) {
     for (size_t index = 0; index < session->tracks.size(); ++index) {
@@ -2369,7 +2874,7 @@ bool StartMusicLibraryScan(MusicViewState* state) {
     return true;
   }
   delete task_context;
-  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks);
+  job->success = app::ScanMusicLibrary(job->source_paths, &job->tracks, &job->playlists);
   job->completed.store(true, std::memory_order_release);
   FinishMusicLibraryScan(session);
   return true;
@@ -2797,7 +3302,7 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
       container, MusicViewDeleteEventCallback, LV_EVENT_DELETE, state);
 
   lv_obj_t* tab =
-      CreateLabel(container, "Songs", lv_color_hex(kPrimaryColor), Font28());
+      CreateLabel(container, "Library", lv_color_hex(kPrimaryColor), Font28());
   if (tab == nullptr) {
     lv_obj_delete(container);
     return nullptr;
@@ -2862,8 +3367,70 @@ lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
       return nullptr;
     }
   }
+  state->cover_timer = lv_timer_create(CoverTimerCallback, kCoverTimerMs, state);
 
   return container;
+}
+
+// ── SurvivalOS: lock screen player ──────────────────────────────────────────
+
+bool GetMusicNowPlaying(MusicNowPlaying* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  *out = MusicNowPlaying();
+  MusicPlaybackSession* session = GetMusicPlaybackSession();
+  const app::MusicTrack* track = CurrentMusicTrack(session);
+  if (track == nullptr) {
+    return false;
+  }
+  out->active = true;
+  out->playing = session->playing;
+  out->title = track->title.c_str();
+  out->artist = track->artist.c_str();
+  out->duration_ms = track->duration_ms;
+  out->track_serial = session->track_serial;
+  hal::AudioFilePlaybackStatus status;
+  if (session->audio != nullptr && session->audio->ReadAudioFileStatus(&status)) {
+    out->elapsed_ms = status.elapsed_ms;
+    if (status.duration_ms != 0) {
+      out->duration_ms = status.duration_ms;
+    }
+  }
+  return true;
+}
+
+void MusicTogglePlayback() {
+  MusicPlaybackSession* session = GetMusicPlaybackSession();
+  if (session->audio == nullptr || CurrentMusicTrack(session) == nullptr) {
+    return;
+  }
+  if (session->playing) {
+    if (session->audio->PauseAudioFile()) {
+      SetMusicPlaying(session, false, true);
+    }
+  } else if (session->audio->ResumeAudioFile()) {
+    SetMusicPlaying(session, true, true);
+  } else {
+    StartMusicTrack(session, static_cast<size_t>(session->current_track));
+  }
+}
+
+void MusicSkipTrack(int direction) {
+  PlayAdjacentMusicTrack(GetMusicPlaybackSession(), direction < 0 ? -1 : 1);
+}
+
+void MusicSeekTo(uint32_t position_ms) {
+  MusicPlaybackSession* session = GetMusicPlaybackSession();
+  if (session->audio != nullptr && CurrentMusicTrack(session) != nullptr) {
+    session->audio->SeekAudioFile(position_ms);
+  }
+}
+
+bool SetMusicNowPlayingCover(lv_obj_t* artwork) {
+  const app::MusicTrack* track = CurrentMusicTrack(GetMusicPlaybackSession());
+  SetArtworkCover(artwork, track);
+  return track != nullptr && TrackHasCover(*track);
 }
 
 }  // namespace lilygo_box::ui

@@ -8,6 +8,7 @@
 #include "hal/lvgl_port.h"
 
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 #include "base/logger.h"
@@ -512,6 +513,20 @@ void LvglPort::FlushCallback(
     return;
   }
 
+  // SurvivalOS diagnostics: CaptureScreen() collects every flushed area.
+  uint8_t* capture = self->capture_buffer_.load(std::memory_order_acquire);
+  if (capture != nullptr) {
+    const int width = flush_area.x2 - flush_area.x1 + 1;
+    for (int y = flush_area.y1; y <= flush_area.y2 && y < self->capture_height_; ++y) {
+      if (y < 0 || flush_area.x1 < 0 || flush_area.x2 >= self->capture_width_) {
+        continue;
+      }
+      std::memcpy(capture + (static_cast<size_t>(y) * self->capture_width_ + flush_area.x1) * 2,
+          flush_pixels + static_cast<size_t>(y - flush_area.y1) * width * 2,
+          static_cast<size_t>(width) * 2);
+    }
+  }
+
   const bool result = self->screen_->WriteScreenPixels(flush_area.x1,
       flush_area.y1, flush_area.x2 + 1, flush_area.y2 + 1, flush_pixels);
   if (!result) {
@@ -586,6 +601,19 @@ void LvglPort::TouchReadCallback(lv_indev_t* indev, lv_indev_data_t* data) {
     self->cached_touch_point_count_ = 0;
     portEXIT_CRITICAL(&self->touch_cache_lock_);
     data->state = LV_INDEV_STATE_REL;
+    NotifyPointerInput(self, data);
+    return;
+  }
+
+  // SurvivalOS diagnostics: an injected touch stands in for the panel.
+  const int injected = self->injected_state_.load(std::memory_order_acquire);
+  if (injected != 0) {
+    data->point.x = self->injected_x_.load();
+    data->point.y = self->injected_y_.load();
+    data->state = injected == 1 ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+    if (injected == 2) {
+      self->injected_state_.store(0, std::memory_order_release);
+    }
     NotifyPointerInput(self, data);
     return;
   }
@@ -1020,6 +1048,38 @@ void LvglPort::TaskLoop() {
     delay_ms = std::max(delay_ms, kMinimumHandlerDelayMs);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(delay_ms));
   }
+}
+
+void LvglPort::InjectTouch(bool pressed, int x, int y) {
+  injected_x_.store(x);
+  injected_y_.store(y);
+  injected_state_.store(pressed ? 1 : 2, std::memory_order_release);
+}
+
+uint8_t* LvglPort::CaptureScreen(int* width, int* height) {
+  if (lvgl_display_ == nullptr || screen_ == nullptr) {
+    return nullptr;
+  }
+  const int w = screen_->ScreenWidth();
+  const int h = screen_->ScreenHeight();
+  auto* buffer = static_cast<uint8_t*>(heap_caps_calloc(
+      static_cast<size_t>(w) * h, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (buffer == nullptr) {
+    return nullptr;
+  }
+  Lock();
+  capture_width_ = w;
+  capture_height_ = h;
+  capture_buffer_.store(buffer, std::memory_order_release);
+  lv_obj_invalidate(lv_display_get_screen_active(lvgl_display_));
+  lv_obj_invalidate(lv_display_get_layer_top(lvgl_display_));
+  lv_obj_invalidate(lv_display_get_layer_sys(lvgl_display_));
+  lv_refr_now(lvgl_display_);
+  capture_buffer_.store(nullptr, std::memory_order_release);
+  Unlock();
+  if (width != nullptr) *width = w;
+  if (height != nullptr) *height = h;
+  return buffer;
 }
 
 }  // namespace lilygo_box::hal

@@ -5,6 +5,7 @@ set(src_dirs
     "app/storage"
     "audio"
     "base"
+    "firstaid"
     "games"
     "hal"
     "hal/ppa"
@@ -56,6 +57,7 @@ idf_component_register(
         esp_driver_sdmmc
         esp_driver_uart
         esp-serial-flasher
+        espeak-ng
         esp_eth
         esp_event
         esp_hosted

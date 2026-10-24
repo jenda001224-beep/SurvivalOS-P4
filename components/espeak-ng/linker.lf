@@ -1,0 +1,6 @@
+# eSpeak NG keeps ~100 kB of state in static arrays; it goes to PSRAM so the
+# phone's internal RAM stays free for DMA buffers and task stacks.
+[mapping:espeak_ng]
+archive: libespeak-ng.a
+entries:
+    * (extram_bss)

@@ -5,6 +5,8 @@
  */
 #include "app/content_sorter.h"
 
+#include "esp_attr.h"
+
 #include <dirent.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -28,12 +30,12 @@ constexpr size_t kMaxPathLength = 300;
 constexpr int kMaxEntriesPerFolder = 4000;
 
 // Folders that already hold sorted content or belong to another system.
-constexpr const char* kSkippedFolders[] = {"wiki", "maps", "Music", "nature", "DCIM",
+constexpr const char* kSkippedFolders[] = {"wiki", "maps", "Music", "nature", "translator", "DCIM",
     "voice", "System Volume Information", "LOST.DIR", "Android", "lilygobox"};
 
 std::atomic<bool> g_sort_running{false};
 
-enum class Kind { kNone, kWiki, kMaps, kMusic, kNature };
+enum class Kind { kNone, kWiki, kMaps, kMusic, kNature, kTranslator };
 
 /**
  * @brief Whether a name ends in an extension, optionally followed by a
@@ -68,6 +70,9 @@ Kind Classify(const char* name, bool top_level) {
   if (HasExtension(name, ".svnat", true)) {
     return Kind::kNature;
   }
+  if (HasExtension(name, ".svtr", true)) {
+    return Kind::kTranslator;
+  }
   if (HasExtension(name, ".pmtiles", true) ||
       HasExtension(name, ".svtrails", false)) {
     return Kind::kMaps;
@@ -90,6 +95,8 @@ const char* FolderFor(Kind kind) {
       return "Music";
     case Kind::kNature:
       return "nature";
+    case Kind::kTranslator:
+      return "translator";
     case Kind::kNone:
       break;
   }
@@ -149,7 +156,8 @@ size_t SortFolder(const char* base_path, const char* folder, bool top_level) {
     char name[128];
     Kind kind;
   };
-  static Pending pending[kMaxMoves];
+  // In PSRAM: 8 kB of internal RAM for a list used once per card mount.
+  EXT_RAM_BSS_ATTR static Pending pending[kMaxMoves];
   int pending_count = 0;
   char subfolders[16][128] = {};
   int subfolder_count = 0;

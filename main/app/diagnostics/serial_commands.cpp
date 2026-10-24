@@ -4,7 +4,9 @@
  */
 #include "app/diagnostics/serial_commands.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -23,6 +25,7 @@
 #include "hal/device/common/camera_utils.h"
 #include "sdkconfig.h"
 #include "survival/jpeg_image.h"
+#include "hal/lvgl_port.h"
 
 namespace lilygo_box::app {
 namespace {
@@ -30,7 +33,8 @@ namespace {
 constexpr uart_port_t kConsoleUart =
     static_cast<uart_port_t>(CONFIG_ESP_CONSOLE_UART_NUM);
 constexpr int kUartRxBufferBytes = 512;
-constexpr uint32_t kTaskStackBytes = 12 * 1024;
+// 16 kB: "svos shot" renders the whole screen on this task.
+constexpr uint32_t kTaskStackBytes = 16 * 1024;
 constexpr UBaseType_t kTaskPriority = 2;
 constexpr size_t kLineLength = 220;
 constexpr char kPrefix[] = "svos";
@@ -321,7 +325,10 @@ void PrintHelp() {
       "svos:   svos survival on|off   switch Survival Mode (deep sleep when dark)\n"
       "svos:   svos setup             run the setup assistant at next start\n"
       "svos:   svos edition full|mini choose the edition\n"
-      "svos:   svos sort              file SD card downloads into place\n");
+      "svos:   svos sort              file SD card downloads into place\n"
+      "svos:   svos tap X Y [ms]      touch the screen\n"
+      "svos:   svos swipe X1 Y1 X2 Y2 [ms]  drag a finger\n"
+      "svos:   svos shot [quality]    screenshot as base64 JPEG\n");
 }
 
 void StartCoprocessor(hal::WifiCoprocessorUpdateMode mode) {
@@ -335,16 +342,77 @@ void StartCoprocessor(hal::WifiCoprocessorUpdateMode mode) {
           : "not started (already running?)");
 }
 
+// ── SurvivalOS diagnostics: touches and screenshots ─────────────────────────
+
+// Finger down at the start, moved in steps, lifted at the end.
+void Swipe(int x1, int y1, int x2, int y2, int duration_ms) {
+  hal::LvglPort* lvgl = g_targets.lvgl;
+  const int steps = std::max(1, duration_ms / 15);
+  for (int i = 0; i <= steps; ++i) {
+    lvgl->InjectTouch(true, x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
+    vTaskDelay(pdMS_TO_TICKS(15));
+  }
+  lvgl->InjectTouch(false, x2, y2);
+  vTaskDelay(pdMS_TO_TICKS(40));
+}
+
+void PrintBase64(const uint8_t* data, size_t size) {
+  static const char kAlphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  char line[100];
+  size_t used = 0;
+  for (size_t i = 0; i < size; i += 3) {
+    const uint32_t a = data[i];
+    const uint32_t b = i + 1 < size ? data[i + 1] : 0;
+    const uint32_t c = i + 2 < size ? data[i + 2] : 0;
+    const uint32_t triple = (a << 16) | (b << 8) | c;
+    line[used++] = kAlphabet[(triple >> 18) & 63];
+    line[used++] = kAlphabet[(triple >> 12) & 63];
+    line[used++] = i + 1 < size ? kAlphabet[(triple >> 6) & 63] : '=';
+    line[used++] = i + 2 < size ? kAlphabet[triple & 63] : '=';
+    if (used >= 76 || i + 3 >= size) {
+      line[used] = '\0';
+      std::printf("%s\n", line);
+      used = 0;
+    }
+  }
+}
+
+// Screenshot as a JPEG in base64 between two marker lines; the Mac side
+// (tools/device_shot.py) cuts it out of the console log.
+void PrintScreenshot(int quality) {
+  int width = 0;
+  int height = 0;
+  uint8_t* pixels = g_targets.lvgl->CaptureScreen(&width, &height);
+  if (pixels == nullptr) {
+    std::printf("svos: shot failed (no memory or display asleep)\n");
+    return;
+  }
+  uint8_t* jpeg = nullptr;
+  size_t jpeg_size = 0;
+  const bool ok = survival::EncodeJpegRgb565(pixels, static_cast<uint32_t>(width),
+      static_cast<uint32_t>(height), quality, &jpeg, &jpeg_size);
+  heap_caps_free(pixels);
+  if (!ok) {
+    std::printf("svos: shot encode failed\n");
+    return;
+  }
+  std::printf("svos-shot-begin %dx%d %u\n", width, height, static_cast<unsigned>(jpeg_size));
+  PrintBase64(jpeg, jpeg_size);
+  std::printf("svos-shot-end\n");
+  free(jpeg);
+}
+
 void RunCommand(char* line) {
   // Opening the port can leave a stray byte in front of the first command.
   line = std::strstr(line, kPrefix);
   if (line == nullptr) {
     return;
   }
-  char* words[4] = {};
+  char* words[8] = {};
   size_t count = 0;
   for (char* word = std::strtok(line, " \t\r\n");
-       word != nullptr && count < 4; word = std::strtok(nullptr, " \t\r\n")) {
+       word != nullptr && count < 8; word = std::strtok(nullptr, " \t\r\n")) {
     words[count++] = word;
   }
   if (count < 2 || std::strcmp(words[0], kPrefix) != 0) {
@@ -355,6 +423,21 @@ void RunCommand(char* line) {
 
   if (std::strcmp(command, "status") == 0) {
     PrintStatus();
+  } else if (std::strcmp(command, "tap") == 0 && g_targets.lvgl != nullptr && count >= 4) {
+    const int x = std::atoi(words[2]);
+    const int y = std::atoi(words[3]);
+    const int hold = count >= 5 ? std::atoi(words[4]) : 80;
+    g_targets.lvgl->InjectTouch(true, x, y);
+    vTaskDelay(pdMS_TO_TICKS(std::max(20, hold)));
+    g_targets.lvgl->InjectTouch(false, x, y);
+    vTaskDelay(pdMS_TO_TICKS(40));
+    std::printf("svos: tap %d,%d\n", x, y);
+  } else if (std::strcmp(command, "swipe") == 0 && g_targets.lvgl != nullptr && count >= 6) {
+    Swipe(std::atoi(words[2]), std::atoi(words[3]), std::atoi(words[4]),
+        std::atoi(words[5]), count >= 7 ? std::atoi(words[6]) : 250);
+    std::printf("svos: swipe done\n");
+  } else if (std::strcmp(command, "shot") == 0 && g_targets.lvgl != nullptr) {
+    PrintScreenshot(count >= 3 ? std::atoi(words[2]) : 70);
   } else if (std::strcmp(command, "tasks") == 0) {
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
     PrintTaskLoad();

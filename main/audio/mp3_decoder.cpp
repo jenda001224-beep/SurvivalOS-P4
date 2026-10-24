@@ -17,6 +17,7 @@
 #include "base/logger.h"
 #include "esp_audio_dec.h"
 #include "esp_audio_dec_default.h"
+#include "esp_mp3_dec.h"
 
 namespace lilygo_box::audio {
 namespace {
@@ -346,7 +347,13 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
   }
   const size_t file_size = static_cast<size_t>(file_size_value);
 
-  esp_audio_dec_register_default();
+  // SurvivalOS: only the MP3 decoder. Registering the defaults pulled every
+  // codec of esp_audio_codec (AAC, FLAC, Opus, ...) into the image, ~0.5 MB of
+  // flash for formats nothing plays.
+  static bool mp3_registered = false;
+  if (!mp3_registered) {
+    mp3_registered = esp_mp3_dec_register() == ESP_AUDIO_ERR_OK;
+  }
   esp_audio_dec_cfg_t decoder_config = {
       .type = ESP_AUDIO_TYPE_MP3,
       .cfg = nullptr,
@@ -356,7 +363,6 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
   if (esp_audio_dec_open(&decoder_config, &decoder) != ESP_AUDIO_ERR_OK) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Unable to open the ESP MP3 decoder\n");
-    esp_audio_dec_unregister_default();
     fclose(file);
     return Mp3PlaybackResult::kDecoderFailed;
   }
@@ -481,7 +487,6 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
 
   fclose(file);
   esp_audio_dec_close(decoder);
-  esp_audio_dec_unregister_default();
   const uint32_t elapsed_ms =
       CalculatePositionMs(base_position_ms, position_pcm_bytes, metadata);
   const LogLevel result_log_level =

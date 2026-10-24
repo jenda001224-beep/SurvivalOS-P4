@@ -31,6 +31,12 @@ void StableUptimeTimerCallback(void* argument) {
 }  // namespace
 
 bool IsDeviceInRestartLoop() {
+  // SurvivalOS: asked from more than one place during start-up; the streak is
+  // counted once per boot.
+  static int cached = -1;
+  if (cached >= 0) {
+    return cached != 0;
+  }
   const esp_reset_reason_t reason = esp_reset_reason();
   const bool restarted_itself =
       reason == ESP_RST_SW || reason == ESP_RST_PANIC ||
@@ -58,7 +64,8 @@ bool IsDeviceInRestartLoop() {
       esp_timer_start_once(timer, kStableUptimeUs);
     }
   }
-  return g_quick_restarts >= kLoopThreshold;
+  cached = g_quick_restarts >= kLoopThreshold ? 1 : 0;
+  return cached != 0;
 }
 
 }  // namespace lilygo_box::app

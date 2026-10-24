@@ -250,6 +250,26 @@
       "cpp_name": "kForest",
       "codepoint": 60057
     },
+    "MedicalServices": {
+      "cpp_name": "kMedicalServices",
+      "codepoint": 61705
+    },
+    "SkipNext": {
+      "cpp_name": "kSkipNext",
+      "codepoint": 57412
+    },
+    "SkipPrevious": {
+      "cpp_name": "kSkipPrevious",
+      "codepoint": 57413
+    },
+    "SwapHoriz": {
+      "cpp_name": "kSwapHoriz",
+      "codepoint": 59604
+    },
+    "Translate": {
+      "cpp_name": "kTranslate",
+      "codepoint": 59618
+    },
     "Home": {
       "cpp_name": "kHome",
       "codepoint": 59826

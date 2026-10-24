@@ -48,7 +48,7 @@ struct LowPowerState {
 
 // Apps left on the home screen in Survival Mode (Settings stays, so the mode
 // can be switched off again).
-inline constexpr const char* kSurvivalApps[] = {"nature", "maps", "radio", "settings"};
+inline constexpr const char* kSurvivalApps[] = {"nature", "maps", "radio", "firstaid", "settings"};
 // Seconds the screen stays off before the phone goes into deep sleep.
 inline constexpr uint32_t kSurvivalDeepSleepDelayMs = 4000;
 // Outside Survival Mode the phone waits a little longer, so switching the

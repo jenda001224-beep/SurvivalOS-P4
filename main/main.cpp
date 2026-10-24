@@ -39,7 +39,14 @@ constexpr uint32_t kInitializationFailureRestartDelayMs = 1000;
 
 }  // namespace
 
-extern "C" void app_main() {
+// SurvivalOS: the application starts on its own task. ESP-IDF's main task has
+// 3.5 kB of stack, and Init() builds the first screens there; with the lock
+// screen clock, BiDi text and the setup assistant that ran out, overwrote the
+// canary and restarted the phone in a loop. 12 kB leaves room to spare.
+constexpr uint32_t kAppTaskStackBytes = 12 * 1024;
+constexpr UBaseType_t kAppTaskPriority = 1;  // what app_main runs at
+
+void AppTask(void*) {
   // lilygo_box::SetMinimumLogLevel(lilygo_box::LogLevel::kDebug);
   // cpp_bus_driver::Tool::SetMinimumLogLevel(
   //     cpp_bus_driver::Tool::LogLevel::kDebug);
@@ -54,4 +61,12 @@ extern "C" void app_main() {
     RestartAfterInitializationFailure();
   }
   app.Run();
+  vTaskDelete(nullptr);
+}
+
+extern "C" void app_main() {
+  if (xTaskCreate(AppTask, "app", kAppTaskStackBytes, nullptr, kAppTaskPriority,
+          nullptr) != pdPASS) {
+    RestartAfterInitializationFailure();
+  }
 }

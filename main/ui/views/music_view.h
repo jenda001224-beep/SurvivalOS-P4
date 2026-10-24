@@ -23,4 +23,47 @@ namespace lilygo_box::ui {
 lv_obj_t* CreateMusicView(lv_obj_t* parent, const app::AppEntry& app_entry,
     const AppViewConfig& config);
 
+// SurvivalOS: what the music player is doing, for the lock screen's player.
+// Call on the LVGL task; the strings stay valid until the library changes.
+struct MusicNowPlaying {
+  bool active = false;  // a track is loaded (playing or paused)
+  bool playing = false;
+  const char* title = "";
+  const char* artist = "";
+  uint32_t elapsed_ms = 0;
+  uint32_t duration_ms = 0;
+  // Changes whenever another track starts, so a cover is decoded once.
+  uint32_t track_serial = 0;
+};
+
+/**
+ * @brief Reads the player's state.
+ * @param out Receives it.
+ * @return true when a track is loaded.
+ */
+bool GetMusicNowPlaying(MusicNowPlaying* out);
+
+/**
+ * @brief Pauses or resumes the current track.
+ */
+void MusicTogglePlayback();
+
+/**
+ * @brief Next (1) or previous (-1) track, following the playlist if one plays.
+ */
+void MusicSkipTrack(int direction);
+
+/**
+ * @brief Jumps within the current track.
+ * @param position_ms Position from the start.
+ */
+void MusicSeekTo(uint32_t position_ms);
+
+/**
+ * @brief Puts the current track's cover into an object, filling it.
+ * @param artwork Object of the cover's size; its children are replaced.
+ * @return true when the track has a cover.
+ */
+bool SetMusicNowPlayingCover(lv_obj_t* artwork);
+
 }  // namespace lilygo_box::ui

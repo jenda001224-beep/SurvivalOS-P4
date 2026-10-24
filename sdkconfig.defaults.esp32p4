@@ -75,3 +75,19 @@ CONFIG_LV_USE_QRCODE=y
 CONFIG_PM_ENABLE=y
 # CONFIG_PM_DFS_INIT_AUTO is not set
 
+
+# SurvivalOS Translator: words in every script are drawn from TTF fonts on the
+# SD card (Go Noto), right-to-left text is reordered and Arabic letters joined.
+CONFIG_LV_USE_FS_STDIO=y
+CONFIG_LV_FS_STDIO_LETTER=83
+CONFIG_LV_FS_STDIO_PATH=""
+CONFIG_LV_FS_STDIO_CACHE_SIZE=8192
+CONFIG_LV_USE_TINY_TTF=y
+CONFIG_LV_TINY_TTF_FILE_SUPPORT=y
+CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT=256
+CONFIG_LV_USE_BIDI=y
+CONFIG_LV_USE_ARABIC_PERSIAN_CHARS=y
+
+# SurvivalOS: large static buffers (eSpeak NG's ~100 kB, the card sorter's
+# folder list) live in PSRAM; internal RAM is kept for DMA and stacks.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y

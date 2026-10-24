@@ -355,6 +355,60 @@ bool LoadJpegThumbnail(const char* path, uint32_t box, JpegImage* image) {
   return made;
 }
 
+bool EncodeJpegRgb565(const uint8_t* pixels, uint32_t width, uint32_t height,
+    int quality, uint8_t** jpeg, size_t* jpeg_size) {
+  if (pixels == nullptr || width == 0 || height == 0 || jpeg == nullptr ||
+      jpeg_size == nullptr) {
+    return false;
+  }
+  const size_t raw_bytes = static_cast<size_t>(width) * height * 2;
+  const jpeg_encode_memory_alloc_cfg_t input_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
+  };
+  size_t input_capacity = 0;
+  auto* input = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(raw_bytes, &input_config, &input_capacity));
+  const jpeg_encode_memory_alloc_cfg_t output_config = {
+      .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
+  };
+  size_t output_capacity = 0;
+  auto* output = static_cast<uint8_t*>(
+      jpeg_alloc_encoder_mem(raw_bytes / 2 + 8192, &output_config, &output_capacity));
+  jpeg_encoder_handle_t encoder = nullptr;
+  const jpeg_encode_engine_cfg_t engine_config = {
+      .intr_priority = 0,
+      .timeout_ms = kDecodeTimeoutMs,
+  };
+  if (input == nullptr || output == nullptr ||
+      jpeg_new_encoder_engine(&engine_config, &encoder) != ESP_OK) {
+    free(input);
+    free(output);
+    return false;
+  }
+  std::memcpy(input, pixels, raw_bytes);
+  const jpeg_encode_cfg_t encode_config = {
+      .height = height,
+      .width = width,
+      .src_type = JPEG_ENCODE_IN_FORMAT_RGB565,
+      .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
+      .image_quality = static_cast<uint32_t>(std::max(1, std::min(100, quality))),
+      .pixel_reverse = false,
+  };
+  uint32_t encoded_size = 0;
+  const esp_err_t error = jpeg_encoder_process(encoder, &encode_config, input,
+      static_cast<uint32_t>(raw_bytes), output, static_cast<uint32_t>(output_capacity),
+      &encoded_size);
+  jpeg_del_encoder_engine(encoder);
+  free(input);
+  if (error != ESP_OK || encoded_size == 0) {
+    free(output);
+    return false;
+  }
+  *jpeg = output;
+  *jpeg_size = encoded_size;
+  return true;
+}
+
 bool RunJpegColorSelfTest(char* report, size_t report_size) {
   if (report == nullptr || report_size == 0) {
     return false;

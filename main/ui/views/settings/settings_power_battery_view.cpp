@@ -726,7 +726,7 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
   if (!CreateSwitchRow(body, "Survival Mode", y, state->config.width,
           low_power.survival, SurvivalSwitchChangedEventCallback, state, false,
           nullptr,
-          "Only Nature, Maps and Radio. Deep sleep when the screen is off; "
+          "Only Nature, Maps, Radio and First Aid. Deep sleep when the screen is off; "
           "double-tap to wake")) {
     return false;
   }

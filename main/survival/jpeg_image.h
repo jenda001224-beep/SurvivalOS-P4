@@ -86,6 +86,19 @@ bool DecodeJpegThumbnail(const uint8_t* data, size_t size, uint32_t box,
 bool LoadJpegThumbnail(const char* path, uint32_t box, JpegImage* image);
 
 /**
+ * @brief Encodes RGB565 pixels (LVGL byte order) to a JPEG on the accelerator.
+ * @param pixels Pixels, width * height.
+ * @param width Width (a multiple of 16 is fastest; any works).
+ * @param height Height.
+ * @param quality 1..100.
+ * @param jpeg Receives a buffer to free with free().
+ * @param jpeg_size Receives the JPEG length.
+ * @return true when encoded.
+ */
+bool EncodeJpegRgb565(const uint8_t* pixels, uint32_t width, uint32_t height,
+    int quality, uint8_t** jpeg, size_t* jpeg_size);
+
+/**
  * @brief Encodes colour bars on the JPEG accelerator and decodes them again.
  *
  * Photos are encoded from the preview frame and shown through

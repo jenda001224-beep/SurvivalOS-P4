@@ -902,6 +902,30 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  if (IsId(app_entry.id, "firstaid")) {
+    return {
+        .symbol = icon::kMedicalServices,
+        .image = nullptr,
+        .shell_color = 0xB3261E,
+        .surface_color = 0xF2B8B5,
+        .pressed_shell_color = 0x8C1D18,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
+  if (IsId(app_entry.id, "translator")) {
+    return {
+        .symbol = icon::kTranslate,
+        .image = nullptr,
+        .shell_color = 0x1F4E8C,
+        .surface_color = 0x8FB8F0,
+        .pressed_shell_color = 0x173C6B,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   if (IsId(app_entry.id, "nature")) {
     return {
         .symbol = icon::kForest,

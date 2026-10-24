@@ -72,6 +72,85 @@ void TrimTagText(std::string* text) {
  * @param text 文本输出地址
  * @return 读取到可用文本返回 true，否则返回 false
  */
+void AppendUtf8(uint32_t code, std::string* out) {
+  if (code < 0x80) {
+    out->push_back(static_cast<char>(code));
+  } else if (code < 0x800) {
+    out->push_back(static_cast<char>(0xC0 | (code >> 6)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else if (code < 0x10000) {
+    out->push_back(static_cast<char>(0xE0 | (code >> 12)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else {
+    out->push_back(static_cast<char>(0xF0 | (code >> 18)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  }
+}
+
+// SurvivalOS: ID3 text in any of its four encodings, as UTF-8. Upstream took
+// only ISO-8859-1 bytes as they were and UTF-8, so tags written by iTunes and
+// most taggers (UTF-16) fell back to the file name and accents broke.
+std::string DecodeId3Text(uint8_t encoding, const uint8_t* data, size_t size) {
+  std::string out;
+  if (encoding == 0) {
+    for (size_t i = 0; i < size && data[i] != 0; ++i) {
+      AppendUtf8(data[i], &out);
+    }
+  } else if (encoding == 3) {
+    size_t length = 0;
+    while (length < size && data[length] != 0) ++length;
+    out.assign(reinterpret_cast<const char*>(data), length);
+  } else {
+    bool big_endian = encoding == 2;
+    size_t i = 0;
+    if (encoding == 1 && size >= 2) {
+      if (data[0] == 0xFE && data[1] == 0xFF) {
+        big_endian = true;
+        i = 2;
+      } else if (data[0] == 0xFF && data[1] == 0xFE) {
+        i = 2;
+      }
+    }
+    for (; i + 1 < size; i += 2) {
+      uint32_t unit = big_endian ? (data[i] << 8) | data[i + 1] : data[i] | (data[i + 1] << 8);
+      if (unit == 0) {
+        break;
+      }
+      if (unit >= 0xD800 && unit <= 0xDBFF && i + 3 < size) {
+        const uint32_t low = big_endian ? (data[i + 2] << 8) | data[i + 3]
+                                        : data[i + 2] | (data[i + 3] << 8);
+        if (low >= 0xDC00 && low <= 0xDFFF) {
+          unit = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+          i += 2;
+        }
+      }
+      AppendUtf8(unit, &out);
+    }
+  }
+  return out;
+}
+
+// Length of a NUL-terminated string in the given encoding, terminator included.
+size_t TerminatedLength(uint8_t encoding, const uint8_t* data, size_t size) {
+  if (encoding == 1 || encoding == 2) {
+    for (size_t i = 0; i + 1 < size; i += 2) {
+      if (data[i] == 0 && data[i + 1] == 0) {
+        return i + 2;
+      }
+    }
+    return size;
+  }
+  for (size_t i = 0; i < size; ++i) {
+    if (data[i] == 0) {
+      return i + 1;
+    }
+  }
+  return size;
+}
+
 bool ReadTextFrame(FILE* file, uint32_t frame_size, std::string* text) {
   if (file == nullptr || text == nullptr || frame_size <= 1 ||
       frame_size > 64 * 1024) {
@@ -82,12 +161,47 @@ bool ReadTextFrame(FILE* file, uint32_t frame_size, std::string* text) {
     return false;
   }
   const uint8_t encoding = static_cast<uint8_t>(buffer[0]);
-  if (encoding != 0 && encoding != 3) {
+  if (encoding > 3) {
     return false;
   }
-  *text = buffer.substr(1);
+  *text = DecodeId3Text(encoding,
+      reinterpret_cast<const uint8_t*>(buffer.data()) + 1, frame_size - 1);
   TrimTagText(text);
   return !text->empty();
+}
+
+// APIC: encoding, MIME type, picture type, description, then the image. Only
+// the image's place in the file is kept. Front covers win over other pictures.
+void ReadPictureFrame(FILE* file, size_t frame_start, uint32_t frame_size,
+    Mp3Metadata* metadata) {
+  uint8_t head[256] = {};
+  const size_t head_size = std::min<size_t>(sizeof(head), frame_size);
+  if (fread(head, 1, head_size, file) != head_size || head_size < 4) {
+    return;
+  }
+  const uint8_t encoding = head[0];
+  size_t cursor = 1;
+  const size_t mime_length = TerminatedLength(0, head + cursor, head_size - cursor);
+  std::string mime(reinterpret_cast<const char*>(head + cursor),
+      mime_length > 0 ? mime_length - 1 : 0);
+  cursor += mime_length;
+  if (cursor >= head_size) {
+    return;
+  }
+  const uint8_t picture_type = head[cursor++];
+  cursor += TerminatedLength(encoding, head + cursor, head_size - cursor);
+  if (cursor >= head_size || cursor >= frame_size) {
+    return;
+  }
+  const bool front = picture_type == 3;
+  if (metadata->cover_size != 0 && !front) {
+    return;
+  }
+  const bool jpeg = (head[cursor] == 0xFF && cursor + 1 < head_size && head[cursor + 1] == 0xD8) ||
+      mime.find("jpeg") != std::string::npos || mime.find("jpg") != std::string::npos;
+  metadata->cover_offset = static_cast<uint32_t>(frame_start + cursor);
+  metadata->cover_size = static_cast<uint32_t>(frame_size - cursor);
+  metadata->cover_is_jpeg = jpeg;
 }
 
 /**
@@ -127,8 +241,21 @@ size_t ReadId3v2(FILE* file, Mp3Metadata* metadata) {
     }
     const bool is_title = std::memcmp(frame_header.data(), "TIT2", 4) == 0;
     const bool is_artist = std::memcmp(frame_header.data(), "TPE1", 4) == 0;
-    std::string* output =
-        is_title ? &metadata->title : (is_artist ? &metadata->artist : nullptr);
+    const bool is_album = std::memcmp(frame_header.data(), "TALB", 4) == 0;
+    if (std::memcmp(frame_header.data(), "APIC", 4) == 0 &&
+        (header[5] & 0x80U) == 0) {
+      // Not for unsynchronised tags, whose picture bytes are escaped.
+      ReadPictureFrame(file, position, frame_size, metadata);
+      if (fseek(file, static_cast<long>(position + frame_size), SEEK_SET) != 0) {
+        break;
+      }
+      position += frame_size;
+      continue;
+    }
+    std::string* output = is_title ? &metadata->title
+        : is_artist                ? &metadata->artist
+        : is_album                 ? &metadata->album
+                                   : nullptr;
     if (output == nullptr || !ReadTextFrame(file, frame_size, output)) {
       if (fseek(file, static_cast<long>(position + frame_size), SEEK_SET) !=
           0) {

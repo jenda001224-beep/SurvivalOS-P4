@@ -15,6 +15,8 @@
 #include "ui/theme/survival_palette.h"
 #include "ui/wallpaper.h"
 #include "ui/widgets/battery_overview_card.h"
+#include "ui/views/music_view.h"
+#include "ui/haptic_feedback.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -106,6 +108,23 @@ lv_obj_t* g_battery_card_owner = nullptr;
 lv_obj_t* g_time_label = nullptr;
 lv_obj_t* g_date_label = nullptr;
 
+// SurvivalOS: the music player on the lock screen, shown while a track is
+// loaded (playing or paused), like the Now Playing card of a phone.
+struct NowPlayingCard {
+  lv_obj_t* card = nullptr;
+  lv_obj_t* cover = nullptr;
+  lv_obj_t* title = nullptr;
+  lv_obj_t* artist = nullptr;
+  lv_obj_t* slider = nullptr;
+  lv_obj_t* elapsed = nullptr;
+  lv_obj_t* remaining = nullptr;
+  lv_obj_t* play_icon = nullptr;
+  lv_timer_t* timer = nullptr;
+  uint32_t serial = UINT32_MAX;
+  bool seeking = false;
+};
+NowPlayingCard g_now_playing;
+
 /**
  * @brief Forgets the battery card when its lock screen is deleted.
  * @param event LVGL delete event of the lock screen.
@@ -116,6 +135,10 @@ void LockScreenDeleteEventCallback(lv_event_t* event) {
     g_battery_card_owner = nullptr;
     g_time_label = nullptr;
     g_date_label = nullptr;
+    if (g_now_playing.timer != nullptr) {
+      lv_timer_delete(g_now_playing.timer);
+    }
+    g_now_playing = NowPlayingCard();
   }
 }
 
@@ -155,6 +178,149 @@ lv_obj_t* CreateBatteryGroup(
   lv_obj_add_event_cb(
       lock_screen, LockScreenDeleteEventCallback, LV_EVENT_DELETE, nullptr);
   return group;
+}
+
+
+void FormatTime(lv_obj_t* label, uint32_t ms, bool minus) {
+  const unsigned seconds = ms / 1000U;
+  lv_label_set_text_fmt(label, "%s%u:%02u", minus ? "-" : "", seconds / 60U, seconds % 60U);
+}
+
+void UpdateNowPlaying(lv_timer_t* /*timer*/) {
+  NowPlayingCard& np = g_now_playing;
+  if (np.card == nullptr) {
+    return;
+  }
+  MusicNowPlaying now;
+  if (!GetMusicNowPlaying(&now)) {
+    lv_obj_add_flag(np.card, LV_OBJ_FLAG_HIDDEN);
+    np.serial = UINT32_MAX;
+    return;
+  }
+  lv_obj_remove_flag(np.card, LV_OBJ_FLAG_HIDDEN);
+  if (now.track_serial != np.serial) {
+    np.serial = now.track_serial;
+    lv_label_set_text(np.title, now.title);
+    lv_label_set_text(np.artist, now.artist);
+    SetMusicNowPlayingCover(np.cover);
+  }
+  lv_label_set_text(np.play_icon, now.playing ? icon::kPause : icon::kPlayArrow);
+  if (!np.seeking && now.duration_ms > 0) {
+    lv_slider_set_value(np.slider,
+        static_cast<int32_t>(static_cast<uint64_t>(now.elapsed_ms) * 1000 / now.duration_ms),
+        LV_ANIM_OFF);
+  }
+  FormatTime(np.elapsed, now.elapsed_ms, false);
+  FormatTime(np.remaining, now.duration_ms > now.elapsed_ms ? now.duration_ms - now.elapsed_ms : 0, true);
+}
+
+void NowPlayingButton(lv_event_t* event) {
+  const auto action = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
+  if (action == 0) {
+    MusicTogglePlayback();
+  } else {
+    MusicSkipTrack(static_cast<int>(action));
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  UpdateNowPlaying(nullptr);
+}
+
+void NowPlayingSeek(lv_event_t* event) {
+  NowPlayingCard& np = g_now_playing;
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESSED) {
+    np.seeking = true;
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    np.seeking = false;
+    MusicNowPlaying now;
+    if (GetMusicNowPlaying(&now) && now.duration_ms > 0) {
+      MusicSeekTo(static_cast<uint32_t>(static_cast<uint64_t>(lv_slider_get_value(np.slider)) *
+          now.duration_ms / 1000));
+    }
+  }
+}
+
+lv_obj_t* ControlButton(lv_obj_t* parent, const char* symbol, intptr_t action, int size) {
+  lv_obj_t* button = lv_button_create(parent);
+  lv_obj_set_size(button, size, size);
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button, lv_color_hex(0xFFFFFF), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(button, 40, LV_STATE_PRESSED);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(button, NowPlayingButton, LV_EVENT_CLICKED, reinterpret_cast<void*>(action));
+  lv_obj_t* label = lv_label_create(button);
+  lv_label_set_text(label, symbol);
+  lv_obj_set_style_text_font(label, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
+  lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_transform_scale(label, action == 0 ? 400 : 330, LV_PART_MAIN);
+  lv_obj_center(label);
+  return button;
+}
+
+void CreateNowPlayingCard(lv_obj_t* lock_screen, const LockScreenViewOptions& options, int top) {
+  NowPlayingCard& np = g_now_playing;
+  const int width = options.screen_width - 2 * (kLockHorizontalPadding + 14);
+  lv_obj_t* card = lv_obj_create(lock_screen);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(card, width, 330);
+  lv_obj_set_pos(card, kLockHorizontalPadding + 14, top);
+  lv_obj_set_style_radius(card, 34, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(card, 150, LV_PART_MAIN);
+  lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(card, 22, LV_PART_MAIN);
+  np.card = card;
+  np.cover = lv_obj_create(card);
+  lv_obj_remove_flag(np.cover, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(np.cover, 120, 120);
+  lv_obj_set_pos(np.cover, 0, 0);
+  lv_obj_set_style_radius(np.cover, 18, LV_PART_MAIN);
+  lv_obj_set_style_clip_corner(np.cover, true, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(np.cover, lv_color_hex(0x3A3A3C), LV_PART_MAIN);
+  lv_obj_set_style_border_width(np.cover, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(np.cover, 0, LV_PART_MAIN);
+  lv_obj_t* note = lv_label_create(np.cover);
+  lv_label_set_text(note, icon::kMusic);
+  lv_obj_set_style_text_font(note, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
+  lv_obj_set_style_text_color(note, lv_color_hex(0xAEAEB2), LV_PART_MAIN);
+  lv_obj_center(note);
+  const int text_left = 140;
+  const int text_width = width - 44 - text_left;
+  np.title = CreateLabel(card, "", lv_color_hex(0xFFFFFF), &lvgl_font_google_sans_flex_28);
+  lv_obj_set_width(np.title, text_width);
+  lv_label_set_long_mode(np.title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_pos(np.title, text_left, 22);
+  np.artist = CreateLabel(card, "", lv_color_hex(0xAEAEB2), &lvgl_font_google_sans_flex_24);
+  lv_obj_set_width(np.artist, text_width);
+  lv_label_set_long_mode(np.artist, LV_LABEL_LONG_DOT);
+  lv_obj_set_pos(np.artist, text_left, 62);
+  np.slider = lv_slider_create(card);
+  lv_slider_set_range(np.slider, 0, 1000);
+  lv_obj_set_size(np.slider, width - 44, 10);
+  lv_obj_set_pos(np.slider, 0, 150);
+  lv_obj_set_style_bg_color(np.slider, lv_color_hex(0x48484A), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(np.slider, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(np.slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+  lv_obj_set_style_pad_all(np.slider, 6, LV_PART_KNOB);
+  lv_obj_set_ext_click_area(np.slider, 24);
+  lv_obj_add_event_cb(np.slider, NowPlayingSeek, LV_EVENT_PRESSED, nullptr);
+  lv_obj_add_event_cb(np.slider, NowPlayingSeek, LV_EVENT_RELEASED, nullptr);
+  lv_obj_add_event_cb(np.slider, NowPlayingSeek, LV_EVENT_PRESS_LOST, nullptr);
+  np.elapsed = CreateLabel(card, "0:00", lv_color_hex(0xAEAEB2), &lvgl_font_google_sans_flex_22);
+  lv_obj_set_pos(np.elapsed, 0, 172);
+  np.remaining = CreateLabel(card, "-0:00", lv_color_hex(0xAEAEB2), &lvgl_font_google_sans_flex_22);
+  lv_obj_align(np.remaining, LV_ALIGN_TOP_RIGHT, 0, 172);
+  lv_obj_t* previous = ControlButton(card, icon::kSkipPrevious, -1, 84);
+  lv_obj_align(previous, LV_ALIGN_BOTTOM_MID, -150, 0);
+  lv_obj_t* play = ControlButton(card, icon::kPlayArrow, 0, 96);
+  lv_obj_align(play, LV_ALIGN_BOTTOM_MID, 0, 6);
+  np.play_icon = lv_obj_get_child(play, 0);
+  lv_obj_t* next = ControlButton(card, icon::kSkipNext, 1, 84);
+  lv_obj_align(next, LV_ALIGN_BOTTOM_MID, 150, 0);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+  np.timer = lv_timer_create(UpdateNowPlaying, 400, nullptr);
+  UpdateNowPlaying(nullptr);
 }
 
 }  // namespace
@@ -213,6 +379,8 @@ lv_obj_t* CreateLockScreenView(
           kLockDateGap);
     }
   }
+
+  CreateNowPlayingCard(lock_screen, options, kLockCardTop + kBatteryOverviewCardHeight + 28);
 
   lv_obj_t* arrow = CreateLabel(lock_screen, icon::kKeyboardArrowUp,
       lv_color_hex(survival_look::Active() ? survival_look::kDim

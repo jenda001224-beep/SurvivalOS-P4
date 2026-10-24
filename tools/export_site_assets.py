@@ -37,6 +37,7 @@ GLYPHS = {
     "settings_input_antenna": 0xE8BF, "eco": 0xEA35, "forest": 0xEA99,
     "local_florist": 0xE545, "close": 0xE5CD, "chevron_right": 0xE5CC,
     "schedule": 0xEFD6, "nutrition": 0xE110, "flip_camera_android": 0xEA37,
+    "translate": 0xE8E2, "swap_horiz": 0xE8D4, "medical_services": 0xF109, "local_pharmacy": 0xE550,
 }
 IMAGES = ["camera_inner_icon_68x68", "music_inner_icon_68x68",
           "settings_inner_icon_68x68", "radio_inner_icon_68x68",

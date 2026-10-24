@@ -256,6 +256,7 @@
   .item .icon svg { width: 24px; height: 24px; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .icon.maps { background: rgba(95, 209, 139, 0.12); } .icon.maps svg { stroke: var(--ok); }
   .icon.wiki { background: rgba(255, 255, 255, 0.08); } .icon.wiki svg { stroke: var(--text); }
+  .icon.tr { background: rgba(10, 132, 255, 0.14); } .icon.tr svg { stroke: #64A8FF; }
   .item b { font-size: 17px; letter-spacing: -0.01em; display: block; }
   .item .desc { font-size: 14px; color: var(--text-dim); margin-top: 4px; line-height: 1.45; }
   .item .meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 16px; }
@@ -266,6 +267,23 @@
   .sum-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .dl-all { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--signal-line); background: var(--signal-soft); color: var(--signal); font-weight: 750; font-size: 14px; cursor: pointer; transition: background 0.15s, color 0.15s; }
   .dl-all:hover:not(:disabled) { background: var(--signal); color: #190C02; }
+  .sd-direct { margin-top: 18px; border-top: 1px solid var(--line-2); padding-top: 18px; }
+  .sd-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 52px; border-radius: 14px; border: 0; background: var(--signal); color: #190C02; font-weight: 800; font-size: 15px; cursor: pointer; }
+  .sd-btn:disabled { opacity: 0.4; cursor: default; }
+  .sd-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+  .sd-hint { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--text-faint); }
+  .sd-panel { margin-top: 14px; }
+  .sd-target { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .sd-bar { height: 10px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .sd-bar i { display: block; height: 100%; width: 0; background: var(--signal); border-radius: 99px; transition: width 0.4s; }
+  .sd-stats { margin-top: 8px; font-size: 13px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .sd-files { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+  .sd-files li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+  .sd-files li span:last-child { color: var(--text-faint); white-space: nowrap; }
+  .sd-files li.done span:last-child { color: var(--ok); }
+  .sd-files li.fail span:last-child { color: #FF6B5E; }
+  .sd-actions { margin-top: 12px; display: flex; gap: 10px; }
+  .sd-actions button { flex: 1; height: 40px; border-radius: 12px; border: 1px solid var(--line-2); background: transparent; color: var(--text); font-weight: 700; cursor: pointer; }
   .dl-all:disabled { opacity: 0.35; cursor: not-allowed; }
   .dl-all svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
   .dl-note { font-size: 12.5px; color: var(--text-faint); margin: -8px 0 16px; }
@@ -491,6 +509,61 @@
   .pctrl { left: calc(16 * var(--u)); right: calc(16 * var(--u)); bottom: calc(72 * var(--u)); height: calc(70 * var(--u)); display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(12 * var(--u)); }
   .pctrl span { border-radius: calc(20 * var(--u)); background: #1C2430; display: grid; place-items: center; font-size: calc(26 * var(--u)); font-weight: 650; color: #D7E1EE; }
 
+  /* Translator */
+  .translator .ntitle { left: calc(18 * var(--u)); top: calc(58 * var(--u)); font-size: calc(36 * var(--u)); font-weight: 650; }
+  .translator .tphr { right: calc(18 * var(--u)); top: calc(52 * var(--u)); height: calc(56 * var(--u)); padding: 0 calc(22 * var(--u)); border-radius: 99px; background: #2C2C2E; display: grid; place-items: center; font-size: calc(24 * var(--u)); }
+  .translator .tbar { left: calc(18 * var(--u)); right: calc(18 * var(--u)); top: calc(112 * var(--u)); height: calc(72 * var(--u)); display: grid; grid-template-columns: 1fr calc(72 * var(--u)) 1fr; gap: calc(10 * var(--u)); }
+  .translator .tbar span { border-radius: calc(22 * var(--u)); background: #1C1C1E; display: grid; place-items: center; font-size: calc(24 * var(--u)); }
+  .translator .tbar b { border-radius: 50%; background: #2C2C2E; display: grid; place-items: center; }
+  .translator .tbar b svg { width: calc(32 * var(--u)); height: calc(32 * var(--u)); fill: #fff; }
+  .translator .tinput { left: calc(18 * var(--u)); right: calc(18 * var(--u)); top: calc(198 * var(--u)); height: calc(76 * var(--u)); border-radius: calc(22 * var(--u)); background: #1C1C1E; border: 2px solid #0A84FF; display: flex; align-items: center; padding: 0 calc(22 * var(--u)); font-size: calc(28 * var(--u)); }
+  .translator .tinput i { width: 2px; height: calc(34 * var(--u)); background: #0A84FF; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .translator .tcards { left: calc(18 * var(--u)); right: calc(18 * var(--u)); top: calc(288 * var(--u)); display: flex; flex-direction: column; gap: calc(12 * var(--u)); }
+  .translator .tcard { position: relative; border-radius: calc(22 * var(--u)); background: #1C1C1E; padding: calc(18 * var(--u)); display: flex; flex-direction: column; gap: calc(6 * var(--u)); opacity: 0; transform: translateY(calc(30 * var(--u))); }
+  .translator.open .tcard { animation: pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards; animation-delay: 1.9s; }
+  .translator.open .tcard + .tcard { animation-delay: 2.15s; }
+  .translator .tcard big { font-size: calc(64 * var(--u)); line-height: 1.1; font-weight: 400; }
+  .translator .tcard b { font-size: calc(28 * var(--u)); font-weight: 500; }
+  .translator .tcard small, .translator .tcard .tlbl { font-size: calc(22 * var(--u)); color: #8E8E93; }
+  .translator .tcard .tlbl { margin-top: calc(10 * var(--u)); }
+  .translator .tcard p { margin: 0; font-size: calc(22 * var(--u)); color: #D1D1D6; }
+  .translator .tcard em { position: absolute; right: calc(18 * var(--u)); top: calc(18 * var(--u)); width: calc(64 * var(--u)); height: calc(64 * var(--u)); border-radius: 50%; background: #2C2C2E; display: grid; place-items: center; }
+  .translator .tcard em svg { width: calc(32 * var(--u)); height: calc(32 * var(--u)); fill: #fff; }
+  .translator.open .tmain em { animation: speak 0.5s ease 3s 3 alternate; }
+  @keyframes speak { to { background: #0A84FF; } }
+  .translator .twave { left: 50%; bottom: calc(90 * var(--u)); transform: translateX(-50%); display: flex; gap: calc(8 * var(--u)); align-items: center; height: calc(60 * var(--u)); opacity: 0; }
+  .translator.open .twave { animation: fadein 0.3s ease 3s forwards, fadeout 0.4s ease 5.6s forwards; }
+  .translator .twave i { width: calc(8 * var(--u)); height: 30%; border-radius: 99px; background: #0A84FF; animation: wave 0.6s ease-in-out infinite alternate; }
+  .translator .twave i:nth-child(2) { animation-delay: 0.1s; } .translator .twave i:nth-child(3) { animation-delay: 0.2s; }
+  .translator .twave i:nth-child(4) { animation-delay: 0.3s; } .translator .twave i:nth-child(5) { animation-delay: 0.4s; }
+  @keyframes wave { to { height: 100%; } }
+  @keyframes fadein { to { opacity: 1; } }
+  @keyframes fadeout { to { opacity: 0; } }
+
+  /* First Aid */
+  .firstaid .ntitle { left: calc(110 * var(--u)); top: calc(58 * var(--u)); font-size: calc(34 * var(--u)); font-weight: 650; }
+  .firstaid .fbadge { left: calc(18 * var(--u)); right: calc(18 * var(--u)); top: calc(122 * var(--u)); height: calc(58 * var(--u)); border-radius: calc(20 * var(--u)); background: rgba(255, 179, 64, 0.3); display: grid; place-items: center; font-size: calc(24 * var(--u)); }
+  .firstaid .fcards { left: calc(18 * var(--u)); right: calc(18 * var(--u)); top: calc(196 * var(--u)); display: flex; flex-direction: column; gap: calc(12 * var(--u)); }
+  .firstaid .fcard, .firstaid .fstep { opacity: 0; transform: translateY(calc(26 * var(--u))); }
+  .firstaid.open .fcard, .firstaid.open .fstep { animation: pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards; }
+  .firstaid.open > .fcards > :nth-child(1) { animation-delay: 0.4s; } .firstaid.open > .fcards > :nth-child(2) { animation-delay: 0.7s; }
+  .firstaid.open > .fcards > :nth-child(3) { animation-delay: 0.95s; } .firstaid.open > .fcards > :nth-child(4) { animation-delay: 1.2s; }
+  .firstaid.open > .fcards > :nth-child(5) { animation-delay: 1.6s; } .firstaid.open > .fcards > :nth-child(6) { animation-delay: 2.0s; }
+  .firstaid .fcard { border-radius: calc(22 * var(--u)); padding: calc(16 * var(--u)) calc(18 * var(--u)); background: #1C1C1E; display: flex; flex-direction: column; gap: calc(4 * var(--u)); }
+  .firstaid .fcard b { font-size: calc(24 * var(--u)); font-weight: 600; }
+  .firstaid .fcard span { font-size: calc(20 * var(--u)); color: #30D158; }
+  .firstaid .fcard p { margin: 0; font-size: calc(20 * var(--u)); color: #D1D1D6; line-height: 1.3; }
+  .firstaid .fred { background: #3A0E0C; border: 2px solid #FF453A; }
+  .firstaid .fred b { color: #FF453A; }
+  .firstaid .fgreen { border: 2px solid #2E7D32; }
+  .firstaid .fherb { flex-direction: row; gap: calc(14 * var(--u)); background: #16261A; }
+  .firstaid .fherb img { width: calc(110 * var(--u)); height: calc(110 * var(--u)); border-radius: calc(16 * var(--u)); object-fit: cover; flex: none; }
+  .firstaid .fherb span { color: #8E8E93; font-style: italic; }
+  .firstaid .fstep { display: flex; gap: calc(12 * var(--u)); align-items: flex-start; }
+  .firstaid .fstep i { flex: none; width: calc(42 * var(--u)); height: calc(42 * var(--u)); border-radius: 50%; background: #FFB340; color: #000; font-style: normal; font-weight: 700; display: grid; place-items: center; font-size: calc(22 * var(--u)); }
+  .firstaid .fstep p { margin: 0; font-size: calc(24 * var(--u)); line-height: 1.3; }
+
   /* Control Center drops from the top over the home screen. */
   .cc { left: calc(22 * var(--u)); top: calc(24 * var(--u)); width: calc(524 * var(--u)); padding: calc(20 * var(--u)); border-radius: calc(38 * var(--u)); background: #1C1C1E; border: 1px solid #48484A; z-index: 8; transform: translateY(-110%); transition: transform 0.7s cubic-bezier(0.2, 0.9, 0.22, 1); }
   .cc.open { transform: none; }
@@ -675,11 +748,30 @@
         <article class="tstep" data-screen="nature" data-label="Nature">
           <div class="app-tag"><span class="mini" style="background:#3F6B2A"><svg><use href="assets/glyphs.svg#o-forest"/></svg></span>Nature</div>
           <h2>Every plant and mushroom, named.</h2>
-          <p>A field guide to the roughly 5,600 plants and fungi recorded in Czechia: Czech and
-            Latin names, photos, whether it is edible, medicinal or poisonous, where it grows and
-            in which months. Filter by colour, habitat or season; search works without
+          <p>A field guide to the plants and fungi of the whole world — every species that has been
+            photographed, with two to five photos you can open full screen, Czech and English names,
+            whether it is edible, medicinal or poisonous and what to do if someone ate it, and where
+            and in which months it grows. Filter by colour, region or season; search works without
             diacritics.</p>
-          <div class="chips"><span>5,600 species</span><span>Edible · poisonous</span><span>Colour &amp; habitat</span><span>In season now</span></div>
+          <div class="chips"><span>Whole world</span><span>2–5 photos each</span><span>Edible · poisonous</span><span>In season now</span></div>
+        </article>
+        <article class="tstep" data-screen="translator" data-label="Translator">
+          <div class="app-tag"><span class="mini" style="background:#1F4E8C"><svg><use href="assets/glyphs.svg#o-translate"/></svg></span>Translator</div>
+          <h2>Find the word, in thousands of languages.</h2>
+          <p>An offline dictionary between any two languages of your bundle — from a handful of
+            world languages up to every one Wiktionary describes. Words come in their own script
+            with a romanisation, the phrasebook has ready-made sentences, and the phone says them
+            out loud. Longer sentences go word by word, and the app tells you so.</p>
+          <div class="chips"><span>Up to 5,000 languages</span><span>Speaks ~100</span><span>Every script</span><span>Phrasebook</span></div>
+        </article>
+        <article class="tstep" data-screen="firstaid" data-label="First Aid">
+          <div class="app-tag"><span class="mini" style="background:#B3261E"><svg><use href="assets/glyphs.svg#o-medical_services"/></svg></span>First Aid</div>
+          <h2>Knows what to do. And what you have.</h2>
+          <p>Type what happened — a burn, a cough, a wasp, a tick — and get the steps, when to call
+            155, and what not to do. Keep your medicine cabinet in the phone: it shows which of your
+            medicines help, how many are left and the dose for each person by age and weight, and
+            the herbs that help, with a photo from the field guide and how to make the tea.</p>
+          <div class="chips"><span>~80 guides</span><span>Doses by weight</span><span>Medicine cabinet</span><span>Works without a card</span></div>
         </article>
         <article class="tstep" data-screen="cam" data-label="Camera">
           <div class="app-tag"><span class="mini" style="background:#F2C051"><img src="assets/icon-camera.png" alt=""></span>Camera</div>
@@ -740,8 +832,10 @@
                   <div class="app" data-app="files" style="--shell:#D98F3B;--surf:#FFE9A8;left:calc(28*var(--u));top:calc(609*var(--u))"><span class="surf"><img src="assets/icon-files.png" alt=""></span></div>
                   <div class="app" data-app="radio" style="--shell:#554890;--surf:#A69CDB;left:calc(166*var(--u));top:calc(609*var(--u))"><span class="surf"><img src="assets/icon-radio.png" alt=""></span></div>
                   <div class="app" data-app="nature" style="--shell:#3F6B2A;left:calc(304*var(--u));top:calc(609*var(--u))"><svg><use href="assets/glyphs.svg#o-forest"/></svg></div>
-                  <div class="app" data-app="petdoku" style="--shell:#3A4A5E;left:calc(442*var(--u));top:calc(609*var(--u))"><svg><use href="assets/glyphs.svg#o-videogame_asset"/></svg></div>
-                  <div class="app" data-app="cit" style="--shell:#3F3F3F;--surf:#939391;left:calc(28*var(--u));top:calc(782*var(--u))"><span class="surf"><img src="assets/icon-cit.png" alt="" style="width:calc(56*var(--u))"></span></div>
+                  <div class="app" data-app="translator" style="--shell:#1F4E8C;left:calc(442*var(--u));top:calc(609*var(--u))"><svg><use href="assets/glyphs.svg#o-translate"/></svg></div>
+                  <div class="app" data-app="firstaid" style="--shell:#B3261E;left:calc(28*var(--u));top:calc(782*var(--u))"><svg><use href="assets/glyphs.svg#o-medical_services"/></svg></div>
+                  <div class="app" data-app="petdoku" style="--shell:#3A4A5E;left:calc(166*var(--u));top:calc(782*var(--u))"><svg><use href="assets/glyphs.svg#o-videogame_asset"/></svg></div>
+                  <div class="app" data-app="cit" style="--shell:#3F3F3F;--surf:#939391;left:calc(304*var(--u));top:calc(782*var(--u))"><span class="surf"><img src="assets/icon-cit.png" alt="" style="width:calc(56*var(--u))"></span></div>
                   <span class="lbl" style="left:calc(22*var(--u));top:calc(540*var(--u))">Wikipedia</span>
                   <span class="lbl" style="left:calc(160*var(--u));top:calc(540*var(--u))">Maps</span>
                   <span class="lbl" style="left:calc(298*var(--u));top:calc(540*var(--u))">Photos</span>
@@ -749,8 +843,10 @@
                   <span class="lbl" style="left:calc(22*var(--u));top:calc(713*var(--u))">Files</span>
                   <span class="lbl" style="left:calc(160*var(--u));top:calc(713*var(--u))">Radio</span>
                   <span class="lbl" style="left:calc(298*var(--u));top:calc(713*var(--u))">Nature</span>
-                  <span class="lbl" style="left:calc(436*var(--u));top:calc(713*var(--u))">Petdoku</span>
-                  <span class="lbl" style="left:calc(22*var(--u));top:calc(886*var(--u))">CIT</span>
+                  <span class="lbl" style="left:calc(436*var(--u));top:calc(713*var(--u))">Translator</span>
+                  <span class="lbl" style="left:calc(22*var(--u));top:calc(886*var(--u))">First Aid</span>
+                  <span class="lbl" style="left:calc(160*var(--u));top:calc(886*var(--u))">Petdoku</span>
+                  <span class="lbl" style="left:calc(298*var(--u));top:calc(886*var(--u))">CIT</span>
                   <div class="abs pdots"><i></i><i></i></div>
                   <div class="abs dock"></div>
                   <div class="app" data-app="cam" style="--shell:#F2C051;--surf:#FBE995;left:calc(68*var(--u));top:calc(1087*var(--u))"><span class="surf"><img src="assets/icon-camera.png" alt=""></span></div>
@@ -794,6 +890,31 @@
                     <div class="nrow"><img src="assets/nature-3.jpg" alt=""><b>Liška obecná</b><i>Cantharellus cibarius</i><span style="color:#30D158">Edible · Forest · Jun–Nov</span></div>
                     <div class="nrow"><img src="assets/nature-4.jpg" alt=""><b>Muchomůrka červená</b><i>Amanita muscaria</i><span style="color:#FF6B5E">Poisonous · Forest · Jul–Nov</span></div>
                     <div class="nrow"><img src="assets/nature-5.jpg" alt=""><b>Muchomůrka zelená</b><i>Amanita phalloides</i><span style="color:#FF453A">Deadly · Forest · Jul–Oct</span></div>
+                  </div>
+                </div>
+
+                <div class="layer win translator" data-layer="translator">
+                  <div class="abs ntitle">Translator</div>
+                  <div class="abs tphr">Phrases</div>
+                  <div class="abs tbar"><span>Czech</span><b><svg><use href="assets/glyphs.svg#f-swap_horiz"/></svg></b><span>Japanese</span></div>
+                  <div class="abs tinput"><span class="ttyped"></span><i></i></div>
+                  <div class="abs tcards">
+                    <div class="tcard tmain"><em><svg><use href="assets/glyphs.svg#f-volume_up"/></svg></em><big>水</big><small>mizu</small><span class="tlbl">Also</span><b>お水</b><small>omizu</small></div>
+                    <div class="tcard"><em><svg><use href="assets/glyphs.svg#f-volume_up"/></svg></em><b>voda · noun</b><p>1. water</p><p>2. (figuratively) bodies of water, waters</p></div>
+                  </div>
+                  <div class="abs twave"><i></i><i></i><i></i><i></i><i></i></div>
+                </div>
+
+                <div class="layer win firstaid" data-layer="firstaid">
+                  <div class="abs ntitle">Popálenina</div>
+                  <div class="abs fbadge">Ošetři a jdi k lékaři</div>
+                  <div class="abs fcards">
+                    <div class="fcard fred"><b>Volej 155, když:</b><p>popálenina je větší než dlaň, na obličeji, rukou nebo kloubech, hluboká, u dětí…</p></div>
+                    <div class="fstep"><i>1</i><p>Okamžitě chlaď vlažnou tekoucí vodou 20 minut.</p></div>
+                    <div class="fstep"><i>2</i><p>Sundej prstýnky a hodinky, dokud není otok.</p></div>
+                    <div class="fstep"><i>3</i><p>Překryj volně čistou fólií nebo sterilním krytím.</p></div>
+                    <div class="fcard fgreen"><b>Ibalgin 400 · Ibuprofen</b><span>Zbývá 14 tablet</span><p>Pro: Ema · 8 let · 26 kg<br>Jedna dávka až 260 mg: půl tablety (200 mg), nejdříve za 6 h, nejvýš 780 mg za den.</p></div>
+                    <div class="fcard fherb"><img src="assets/nature-herb.jpg" alt=""><div><b>Aloe pravá</b><span>Aloe vera</span><p>Čerstvý gel z listu na malou, už zchlazenou popáleninu.</p></div></div>
                   </div>
                 </div>
 
@@ -938,7 +1059,7 @@
                   <rect x="116" y="42" width="84" height="6" rx="3" fill="#2B2C2E"/>
                   <circle cx="72" cy="61" r="9" fill="#1C1D1F"/><circle cx="72" cy="61" r="9" fill="none" stroke="#5B5E62" stroke-width="2"/>
                   <rect x="102" y="53" width="44" height="17" rx="8.5" fill="#1F2022"/><rect x="110" y="60" width="28" height="3" rx="1.5" fill="#4A4C50"/>
-                  <rect x="158" y="53" width="44" height="17" rx="8.5" fill="#1F2022"/>
+                  <rect x="158" y="53" width="44" height="17" rx="8.5" fill="#1F2022"/><rect x="166" y="60" width="28" height="3" rx="1.5" fill="#4A4C50"/>
                   <rect x="153" y="48" width="54" height="27" rx="13.5" fill="none" stroke="#FF7A1A" stroke-width="2.5"/>
                   <rect x="236" y="44" width="6" height="30" rx="3" fill="#2B2C2E"/>
                   <text x="180" y="13" text-anchor="middle" fill="#FF7A1A" font-family="-apple-system, system-ui, sans-serif" font-size="13" font-weight="800">P4.U</text>
@@ -1099,8 +1220,8 @@
                 <input type="checkbox" data-item="nature" disabled>
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon maps"><svg viewBox="0 0 24 24"><path d="M12 22V12M12 12C12 7 8 4 4 4c0 5 3 8 8 8zM12 14c0-4 3-7 8-7 0 4-3 7-8 7z"/></svg></span>
-                <b>Plants &amp; fungi of Czechia</b>
-                <span class="desc">Every species recorded in Czechia with photos, uses, habitats and season — for the Nature app.</span>
+                <b>Plants &amp; fungi of the whole world</b>
+                <span class="desc">Every plant and fungus species on Earth that has been photographed — two to five photos each, Czech and English names, edible or poisonous and what to do if someone ate it, where and in which months it grows. For the Nature app.</span>
                 <span class="meta"><span class="size" data-size="nature"></span></span>
               </label>
             </div>
@@ -1126,6 +1247,51 @@
               </label>
             </div>
           </div>
+          <div>
+            <div class="group-title">Translator · dictionary, phrasebook, speech</div>
+            <div class="items">
+              <label class="item">
+                <input type="checkbox" data-item="tr-basic">
+                <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
+                <b>Basic</b>
+                <span class="desc">Czech and English with German, French, Spanish, Italian, Portuguese, Polish, Slovak, Russian, Ukrainian, Chinese, Japanese, Arabic and Turkish.</span>
+                <span class="meta"><span class="size" data-size="tr-basic"></span></span>
+              </label>
+              <label class="item">
+                <input type="checkbox" data-item="tr-europe">
+                <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
+                <b>Europe</b>
+                <span class="desc">Every EU language and the rest of Europe, regional ones included — about 80.</span>
+                <span class="meta"><span class="size" data-size="tr-europe"></span></span>
+              </label>
+              <label class="item">
+                <input type="checkbox" data-item="tr-americas">
+                <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
+                <b>Americas</b>
+                <span class="desc">Spanish, Portuguese, French and Haitian Creole with Quechua, Guaraní, Nahuatl, Mayan languages, Navajo, Cherokee, Inuktitut and more.</span>
+                <span class="meta"><span class="size" data-size="tr-americas"></span></span>
+              </label>
+              <label class="item">
+                <input type="checkbox" data-item="tr-africa">
+                <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
+                <b>Africa</b>
+                <span class="desc">Arabic varieties, Swahili, Amharic, Hausa, Yoruba, Igbo, Zulu, Xhosa, Somali, Oromo and some 70 more.</span>
+                <span class="meta"><span class="size" data-size="tr-africa"></span></span>
+              </label>
+              <label class="item">
+                <input type="checkbox" data-item="tr-global">
+                <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
+                <b>Global</b>
+                <span class="desc">Every language Wiktionary describes — about 5,000. Holds all the bundles above.</span>
+                <span class="meta"><span class="size" data-size="tr-global"></span></span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <aside class="summary" aria-live="polite">
@@ -1140,6 +1306,21 @@
           <ul class="dl-list" id="content-links"></ul>
           <div class="dl-note" id="content-note" hidden>“Download all” starts the files one after another. Chrome asks once whether this page may download several files — allow it.</div>
           <div class="dl-empty" id="content-empty">Your downloads appear here.</div>
+          <div class="sd-direct">
+            <button type="button" class="sd-btn" id="sd-start" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M10 3v4M13 3v4M16 4v3"/></svg>Download straight to the SD card
+            </button>
+            <div class="sd-hint" id="sd-hint">Chrome or Edge on a computer: put the card in a reader, pick it, and every file lands in the right folder on it — no copying. You can stop and continue later; finished parts are kept.</div>
+            <div class="sd-panel" id="sd-panel" hidden>
+              <div class="sd-target" id="sd-target"></div>
+              <div class="sd-bar"><i id="sd-bar"></i></div>
+              <div class="sd-stats" id="sd-stats"></div>
+              <ul class="sd-files" id="sd-files"></ul>
+              <div class="sd-actions">
+                <button type="button" id="sd-stop">Stop</button>
+              </div>
+            </div>
+          </div>
           <ol class="copy-steps">
             <li>Download each file. Wikipedia comes straight from Kiwix, maps from this project.</li>
             <li>Copy them onto the microSD card — any folder is fine.</li>
@@ -1300,7 +1481,8 @@
       Wikipedia content is CC BY-SA, packaged by <a href="https://kiwix.org" target="_blank" rel="noopener">Kiwix</a>.<br>
       Field guide photos via <a href="https://www.inaturalist.org" target="_blank" rel="noopener">iNaturalist</a>:
       parasol mushroom © Lucian Clanet (CC BY), porcini © wp-polzin (CC BY-NC),
-      chanterelle, fly agaric and death cap © Federico Calledda (CC BY-NC).
+      chanterelle, fly agaric and death cap © Federico Calledda (CC BY-NC); aloe © 
+Photo by David J. Stang (CC BY-SA).
     </div>
     <div><a href="#top">Back to top ↑</a></div>
   </div>
@@ -1416,6 +1598,19 @@
     return icon;
   }
 
+  var translatorTimer = null;
+  function typeTranslator() {
+    var target = screen.querySelector(".translator .ttyped");
+    if (!target) return;
+    clearInterval(translatorTimer);
+    var text = "voda", i = 0;
+    target.textContent = "";
+    translatorTimer = setInterval(function () {
+      target.textContent = text.slice(0, ++i);
+      if (i >= text.length) clearInterval(translatorTimer);
+    }, reduce ? 0 : 160);
+  }
+
   function typeSearch() {
     var target = screen.querySelector(".wiki .typed");
     if (!target) return;
@@ -1450,6 +1645,7 @@
       if (mine !== token) return;
       layer.classList.add("open");
       if (name === "wiki") setTimeout(typeSearch, reduce ? 0 : 420);
+      if (name === "translator") setTimeout(typeTranslator, reduce ? 0 : 700);
     }, delay);
   }
 
@@ -1519,6 +1715,7 @@
 (function () {
   var RELEASE = "https://github.com/jenda001224-beep/SurvivalOS-P4/releases/download/maps-2026-10/";
   var KIWIX = "https://download.kiwix.org/zim/";
+  var TRANSLATOR = "https://github.com/jenda001224-beep/SurvivalOS-P4/releases/download/translator-2026-10/";
   // Sizes in bytes. Kiwix links without a date always point at the newest
   // file, so their size is approximate and may grow a little.
   var ITEMS = {
@@ -1531,10 +1728,15 @@
     "maps-world": { title: "World overview map", files: [
       { name: "world10.pmtilesaa", url: RELEASE + "world10.pmtilesaa", bytes: 2097152000 },
       { name: "world10.pmtilesab", url: RELEASE + "world10.pmtilesab", bytes: 1576695330 } ] },
-    "nature": { title: "Field guide", files: [{ name: "nature.svnat", url: "https://github.com/jenda001224-beep/SurvivalOS-P4/releases/download/nature-2026-10/nature.svnat", bytes: 0 }], soon: true },
+    "nature": { title: "Field guide (world)", files: [{ name: "nature-world.svnat3", url: "https://github.com/jenda001224-beep/SurvivalOS-P4/releases/download/nature-2026-10/nature-world.svnat3", bytes: 0 }], soon: true },
     "maps-planet": { title: "World map, detailed", files: [{ name: "v4.pmtiles", url: "https://data.source.coop/protomaps/openstreetmap/v4.pmtiles", bytes: 134812420554 }] },
     "wiki-cs": { title: "Czech Wikipedia", files: [{ name: "wikipedia_cs_all_nopic.zim", url: KIWIX + "wikipedia_cs_all_nopic.zim", bytes: 3430401584 }] },
-    "wiki-en": { title: "English Wikipedia", files: [{ name: "wikipedia_en_all_nopic.zim", url: KIWIX + "wikipedia_en_all_nopic.zim", bytes: 52690706555 }] }
+    "wiki-en": { title: "English Wikipedia", files: [{ name: "wikipedia_en_all_nopic.zim", url: KIWIX + "wikipedia_en_all_nopic.zim", bytes: 52690706555 }] },
+    "tr-basic": { title: "Translator, Basic", files: [{ name: "translator-basic.svtr", url: TRANSLATOR + "translator-basic.svtr", bytes: 546295872 }] },
+    "tr-europe": { title: "Translator, Europe", files: [{ name: "translator-europe.svtr", url: TRANSLATOR + "translator-europe.svtr", bytes: 801769744 }] },
+    "tr-americas": { title: "Translator, Americas", files: [{ name: "translator-americas.svtr", url: TRANSLATOR + "translator-americas.svtr", bytes: 297276264 }] },
+    "tr-africa": { title: "Translator, Africa", files: [{ name: "translator-africa.svtr", url: TRANSLATOR + "translator-africa.svtr", bytes: 311792216 }] },
+    "tr-global": { title: "Translator, Global", files: [{ name: "translator-global.svtr", url: TRANSLATOR + "translator-global.svtr", bytes: 1063071784 }] }
   };
   var CARD_SIZES = [8, 16, 32, 64, 128, 256, 512, 1024];
 
@@ -1573,6 +1775,8 @@
     document.getElementById("content-total").textContent = total ? gb(total) : "0 GB";
     var fileCount = links.children.length;
     document.getElementById("content-all").disabled = fileCount === 0;
+    var sdButton = document.getElementById("sd-start");
+    if (sdButton && (typeof sd === "undefined" || !sd.running)) sdButton.disabled = fileCount === 0;
     document.getElementById("content-note").hidden = fileCount < 2;
     document.getElementById("content-empty").hidden = total > 0;
     var advice = document.getElementById("content-advice");
@@ -1599,7 +1803,8 @@
         (key === "maps-world" && mapList.indexOf("world") >= 0) ||
         (key === "maps-europe12" && mapList.indexOf("europe") >= 0) ||
         (key === "wiki-cs" && wiki.indexOf("cs") >= 0) || (key === "wiki-en" && wiki.indexOf("en") >= 0) ||
-        (key === "nature" && params.get("nature") === "1"));
+        (key === "nature" && params.get("nature") === "1") ||
+        (key.indexOf("tr-") === 0 && (params.get("translator") || "").split(",").indexOf(key.slice(3)) >= 0));
     });
     document.getElementById("picked").hidden = false;
     var section = document.getElementById("content");
@@ -1620,7 +1825,7 @@
     // A sensible start for someone who arrives without a phone in hand.
     boxes().forEach(function (box) {
       var key = box.getAttribute("data-item");
-      box.checked = !box.disabled && (key === "maps-cz" || key === "wiki-cs" || key === "nature");
+      box.checked = !box.disabled && (key === "maps-cz" || key === "wiki-cs" || key === "nature" || key === "tr-basic");
     });
   }
   window.addEventListener("hashchange", function () { if (applyHash()) render(); });
@@ -1632,6 +1837,138 @@
       setTimeout(function () { anchor.click(); }, index * 1500);
     });
   });
+
+  // ── Straight to the SD card ─────────────────────────────────────────────
+  // Chrome and Edge can write into a folder the user picks (File System
+  // Access API). Big files are written as 1 GiB parts (name + "aa", "ab", …)
+  // which the phone reads as one file; that also keeps every file under the
+  // FAT32 limit and lets a stopped download continue at the part it was in.
+  // GitHub does not allow pages to read its release files (no CORS), so
+  // those still download the normal way and need copying.
+  var PART = 1024 * 1024 * 1024;
+  var DIRS = { "maps": "maps", "wiki": "wiki", "nature": "nature", "tr": "translator" };
+  function dirFor(key) {
+    var prefix = key.split("-")[0];
+    return DIRS[prefix] || "";
+  }
+  function corsOk(url) { return url.indexOf("://github.com/") < 0; }
+  function suffix(index) { return String.fromCharCode(97 + Math.floor(index / 26), 97 + index % 26); }
+  function sdJobs() {
+    var jobs = [];
+    boxes().forEach(function (box) {
+      if (!box.checked) return;
+      var key = box.getAttribute("data-item");
+      var files = ITEMS[key].files;
+      files.forEach(function (file) {
+        var direct = corsOk(file.url);
+        // Files already published as parts stay as they are.
+        var preSplit = files.length > 1;
+        if (direct && !preSplit && file.bytes > PART) {
+          for (var i = 0, start = 0; start < file.bytes; i++, start += PART) {
+            jobs.push({ dir: dirFor(key), name: file.name + suffix(i), url: file.url, start: start,
+                        length: Math.min(PART, file.bytes - start), direct: true });
+          }
+        } else {
+          jobs.push({ dir: dirFor(key), name: file.name, url: file.url, start: 0, length: file.bytes, direct: direct });
+        }
+      });
+    });
+    return jobs;
+  }
+  var sd = { stop: false, running: false };
+  function fmtTime(seconds) {
+    if (!isFinite(seconds) || seconds <= 0) return "";
+    var h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+    return h > 0 ? h + " h " + m + " min" : Math.max(1, m) + " min";
+  }
+  async function writeJob(root, job, progress) {
+    var folder = job.dir ? await root.getDirectoryHandle(job.dir, { create: true }) : root;
+    var handle = await folder.getFileHandle(job.name, { create: true });
+    var have = (await handle.getFile()).size;
+    if (have === job.length) { progress(job.length, true); return "kept"; }
+    if (have > job.length) have = 0;
+    var from = job.start + have, to = job.start + job.length - 1;
+    var response = await fetch(job.url, { headers: { Range: "bytes=" + from + "-" + to } });
+    if (response.status !== 206 && !(response.status === 200 && from === 0 && job.length === Number(response.headers.get("Content-Length")))) {
+      throw new Error("server said " + response.status);
+    }
+    var writable = await handle.createWritable({ keepExistingData: have > 0 });
+    if (have > 0) await writable.seek(have); else await writable.truncate(0);
+    var reader = response.body.getReader(), done = have;
+    progress(done, false);
+    try {
+      for (;;) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        await writable.write(chunk.value);
+        done += chunk.value.length;
+        progress(done, false);
+        if (sd.stop) { await reader.cancel(); break; }
+      }
+    } finally {
+      await writable.close();
+    }
+    if (sd.stop) return "stopped";
+    if (done < job.length) throw new Error("connection closed");
+    return "done";
+  }
+  async function startSd() {
+    if (!window.showDirectoryPicker) {
+      document.getElementById("sd-hint").textContent = "This needs Chrome or Edge on a computer (Windows, macOS, Linux, ChromeOS). Other browsers: use the download buttons above and copy the files.";
+      return;
+    }
+    var root;
+    try { root = await window.showDirectoryPicker({ id: "survivalos-sd", mode: "readwrite" }); }
+    catch (error) { return; }
+    var jobs = sdJobs(), direct = jobs.filter(function (j) { return j.direct; });
+    var panel = document.getElementById("sd-panel"), list = document.getElementById("sd-files");
+    panel.hidden = false; list.textContent = "";
+    document.getElementById("sd-target").textContent = "Writing to: " + root.name;
+    var rows = jobs.map(function (job) {
+      var li = document.createElement("li"), a = document.createElement("span"), b = document.createElement("span");
+      a.textContent = (job.dir ? job.dir + "/" : "") + job.name;
+      b.textContent = job.direct ? gb(job.length) : "GitHub: download above, then copy";
+      li.appendChild(a); li.appendChild(b); list.appendChild(li); return { li: li, state: b };
+    });
+    var total = direct.reduce(function (sum, j) { return sum + j.length; }, 0);
+    var finished = 0, current = 0, samples = [];
+    var bar = document.getElementById("sd-bar"), stats = document.getElementById("sd-stats");
+    function show() {
+      var now = Date.now(), got = finished + current;
+      samples.push([now, got]);
+      while (samples.length > 2 && now - samples[0][0] > 15000) samples.shift();
+      var speed = samples.length > 1 ? (got - samples[0][1]) / ((now - samples[0][0]) / 1000) : 0;
+      bar.style.width = (total ? got / total * 100 : 100) + "%";
+      stats.textContent = gb(got) + " of " + gb(total) + (speed > 0 ? " · " + (speed / 1e6).toFixed(1) + " MB/s · about " + fmtTime((total - got) / speed) + " left" : "");
+    }
+    sd.stop = false; sd.running = true;
+    document.getElementById("sd-start").disabled = true;
+    for (var i = 0; i < jobs.length && !sd.stop; i++) {
+      var job = jobs[i], row = rows[i];
+      if (!job.direct) continue;
+      row.state.textContent = "starting…"; current = 0;
+      for (var attempt = 1; attempt <= 5 && !sd.stop; attempt++) {
+        try {
+          var result = await writeJob(root, job, function (bytes, kept) {
+            current = bytes; row.state.textContent = kept ? "already on the card" : Math.floor(bytes / job.length * 100) + " %"; show();
+          });
+          if (result === "stopped") break;
+          row.li.className = "done"; row.state.textContent = result === "kept" ? "already on the card" : "done";
+          break;
+        } catch (error) {
+          row.state.textContent = "retry " + attempt + " (" + error.message + ")";
+          await new Promise(function (r) { setTimeout(r, 4000 * attempt); });
+          if (attempt === 5) { row.li.className = "fail"; row.state.textContent = "failed – start again to continue"; }
+        }
+      }
+      finished += current >= job.length ? job.length : 0; current = 0; show();
+    }
+    sd.running = false;
+    document.getElementById("sd-start").disabled = false;
+    stats.textContent += sd.stop ? " · stopped – start again to continue" : " · finished. Put the card into the phone.";
+  }
+  document.getElementById("sd-start").addEventListener("click", startSd);
+  document.getElementById("sd-stop").addEventListener("click", function () { sd.stop = true; });
   render();
 })();
 </script>

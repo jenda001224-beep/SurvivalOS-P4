@@ -43,6 +43,29 @@ Flashing is reversible: the web flasher can also write LILYGO's factory image ba
   `tools/prepare_nature.py` from iNaturalist and Wikipedia (photos keep their
   CC licences and credits, shown under each photo). `main/ui/views/nature_view.*`,
   `main/survival/nature_pack.*`; `hosttest/nature/`.
+- Translator, offline, between any two of the languages in the bundle on the card
+  (Basic, Europe, Americas, Africa, or Global with all ~5,000 languages the English
+  Wiktionary describes). Words translate through Wiktionary's translation tables
+  (an English word in one sense links its translations in every language), with a
+  word's English meanings as a fallback; sentences go word by word, longest known
+  phrase first, and the app says so; a phrasebook lists Wiktionary's phrasebook
+  entries by topic. Every script is drawn from Go Noto TTF fonts on the card
+  (LVGL Tiny TTF, BiDi and Arabic joining on), and the result is spoken by
+  eSpeak NG (~100 languages, `components/espeak-ng`, `main/survival/speech.*`).
+  Fonts and voices ride inside the bundle and are unpacked to `/translator` on
+  first use. Dictation is not offered: speech recognition for so many languages
+  does not fit this chip (see `docs/TRANSLATOR.md`). Data: `tools/prepare_translator.py`;
+  reader `main/survival/translator_pack.*`, `hosttest/translator/`.
+- Lock screen: a thin clock and the date above the battery card. Deep sleep when
+  locked, in every mode: 10 s after the screen goes off (4 s in Survival Mode) the
+  phone sleeps and a double tap restarts it into the lock screen; not while music
+  plays, something records, the card sorter runs or the charger is in.
+- Low Power Mode lowers the CPU clock to 180 MHz and Survival Mode to 90 MHz
+  (esp_pm with max = min); Survival Mode also draws at 10 fps and turns the UI
+  black with thin red text (`ui/theme/survival_palette.h`).
+- Photos: thumbnails are made by a background task, visible ones first, and cached
+  in `DCIM/.thumbs`; the viewer has a back button, swipes sideways to the next
+  photo and down back to the grid.
 - The UI text fonts (22-36 px) now carry Latin-1 and Latin Extended-A, so Czech
   (and most European) text shows its accents, in Wikipedia too.
 - Downloads copied anywhere on the card (top folder or one level below) are moved
@@ -144,5 +167,8 @@ GPL-3.0, like the firmware it is derived from; see [LICENSE](./LICENSE). The ups
 README follows unchanged in [README.md](./README.md). Third-party parts keep their own
 licences: zstd (`components/zstd`, BSD), FatFs and its ESP-IDF glue
 (`components/fatfs`, BSD-style and Apache-2.0), esptool-js (`docs/vendor`, Apache-2.0),
-esp-serial-flasher (`components/esp-serial-flasher`, Apache-2.0) and the ESP-Hosted
-firmware for the ESP32-C6 as built by LILYGO (`assets/coprocessor`, Apache-2.0).
+esp-serial-flasher (`components/esp-serial-flasher`, Apache-2.0), eSpeak NG
+(`components/espeak-ng`, GPL-3.0-or-later) and the ESP-Hosted firmware for the
+ESP32-C6 as built by LILYGO (`assets/coprocessor`, Apache-2.0). Translator data is
+derived from the English Wiktionary (CC BY-SA 4.0 and GFDL) through wiktextract /
+kaikki.org; its fonts are Go Noto Universal, built from Noto (SIL OFL 1.1).

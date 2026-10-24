@@ -702,6 +702,16 @@ bool Application::Init() {
       primary_radio_chip);
   app::InitLowPowerStorage();
   app::InitEditionStorage();
+  // SurvivalOS: a power mode must never be able to lock the phone in a
+  // restart loop. Restarting repeatedly within a minute of booting switches
+  // Low Power and Survival Mode off before they change anything.
+  if (app::IsDeviceInRestartLoop() &&
+      (app::IsLowPowerModeEnabled() || app::IsSurvivalModeEnabled())) {
+    app::SetSurvivalModeEnabled(false);
+    app::SetLowPowerModeEnabled(false);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Repeated restarts shortly after boot: Low Power and Survival Mode off\n");
+  }
   app::ApplyCpuClockForPowerMode();
   app::SetLowPowerModeListener(
       [this](bool enabled) { ApplyLowPowerMode(enabled); });
@@ -924,6 +934,7 @@ bool Application::Init() {
   serial_targets.storage = device_provider_context_.storage;
   serial_targets.camera = device_provider_context_.camera;
   serial_targets.battery = device_provider_context_.battery_management;
+  serial_targets.lvgl = &lvgl_port_;
   app::StartSerialCommands(serial_targets);
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,

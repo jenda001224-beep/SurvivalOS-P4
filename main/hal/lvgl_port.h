@@ -197,6 +197,24 @@ class LvglPort final {
   void SetFramePeriods(uint32_t refresh_period_ms, uint32_t touch_period_ms);
 
   /**
+   * @brief SurvivalOS diagnostics: feeds a touch to LVGL instead of the panel.
+   * @param pressed true for finger down/moving, false lifts it (the lift is
+   *        delivered once, then the panel is read again).
+   * @param x Screen X.
+   * @param y Screen Y.
+   */
+  void InjectTouch(bool pressed, int x, int y);
+
+  /**
+   * @brief SurvivalOS diagnostics: renders the whole screen once more and
+   *        returns a copy of it.
+   * @param width Receives the width.
+   * @param height Receives the height.
+   * @return RGB565 pixels in PSRAM (free with heap_caps_free), or nullptr.
+   */
+  uint8_t* CaptureScreen(int* width, int* height);
+
+  /**
    * @brief 锁定 LVGL API 访问
    */
   void Lock();
@@ -362,6 +380,13 @@ class LvglPort final {
   // 恢复显示后请求 LVGL 任务在自己的锁内执行一次全屏重绘。
   std::atomic<bool> display_refresh_requested_{false};
   // Periods waiting for the LVGL task to apply; 0 means nothing pending.
+  // SurvivalOS diagnostics (InjectTouch, CaptureScreen).
+  std::atomic<int> injected_state_{0};  // 0 none, 1 pressed, 2 lift pending
+  std::atomic<int> injected_x_{0};
+  std::atomic<int> injected_y_{0};
+  std::atomic<uint8_t*> capture_buffer_{nullptr};
+  int capture_width_ = 0;
+  int capture_height_ = 0;
   std::atomic<uint32_t> pending_refresh_period_ms_{0};
   std::atomic<uint32_t> pending_touch_period_ms_{0};
   // 每次恢复硬件刷新时递增，用于区分不同的首帧请求。

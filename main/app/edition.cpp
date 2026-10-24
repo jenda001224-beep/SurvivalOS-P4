@@ -30,7 +30,7 @@ std::atomic<bool> g_setup_completed{false};
 
 // Apps that only make sense with data on an SD card.
 constexpr const char* kCardOnlyApps[] = {"wikipedia", "maps", "music",
-    "files", "nature"};
+    "files", "nature", "translator"};
 
 uint8_t ReadU8(const char* key, uint8_t fallback) {
   nvs_handle_t handle = 0;

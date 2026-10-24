@@ -20,6 +20,10 @@ constexpr AppEntry kHomeAppEntries[] = {
     {.id = "files", .title = "Files", .subtitle = "File manager"},
     {.id = "radio", .title = "Radio", .subtitle = "LoRa module control"},
     {.id = "nature", .title = "Nature", .subtitle = "Plants and fungi"},
+    {.id = "translator", .title = "Translator",
+        .subtitle = "Offline dictionary and phrasebook"},
+    {.id = "firstaid", .title = "First Aid",
+        .subtitle = "What to do, medicine cabinet, doses"},
     {.id = "petdoku", .title = "Petdoku", .subtitle = "Logic puzzle"},
     {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
 };

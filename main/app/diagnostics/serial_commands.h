@@ -6,6 +6,10 @@
 
 #include "hal/providers/providers.h"
 
+namespace lilygo_box::hal {
+class LvglPort;
+}  // namespace lilygo_box::hal
+
 namespace lilygo_box::app {
 
 // SurvivalOS: lets a computer on the P4.U port ask the device what it sees
@@ -18,6 +22,8 @@ struct SerialCommandTargets {
   hal::StorageProvider* storage = nullptr;
   hal::CameraProvider* camera = nullptr;
   hal::BatteryManagementProvider* battery = nullptr;
+  // SurvivalOS diagnostics: touches and screenshots over the console.
+  hal::LvglPort* lvgl = nullptr;
 };
 
 /**

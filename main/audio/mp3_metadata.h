@@ -16,6 +16,12 @@ namespace lilygo_box::audio {
 struct Mp3Metadata {
   std::string title;
   std::string artist;
+  // SurvivalOS: album and the embedded cover (ID3v2 APIC), located in the file
+  // so it can be read later without parsing the tag again.
+  std::string album;
+  uint32_t cover_offset = 0;
+  uint32_t cover_size = 0;
+  bool cover_is_jpeg = false;
   uint32_t duration_ms = 0;
   uint32_t sample_rate_hz = 0;
   uint32_t bitrate_kbps = 0;
