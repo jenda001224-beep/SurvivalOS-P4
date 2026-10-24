@@ -3,9 +3,9 @@
  *               doses for each person and the herbs that help
  * @License: GPL 3.0
  *
- * Home: emergency numbers, a search by symptom or injury, the cabinet and the
- * person the doses are for, and every guide by category. A guide shows when to
- * call 155, the steps, what not to do, the medicines from the cabinet that
+ * Home: what to deal with first, a search by symptom or injury, the cabinet and the
+ * person the doses are for, and every guide by category. A guide shows the danger
+ * signs, the steps, what not to do, the medicines from the cabinet that
  * help with the dose for the chosen person and what is left, and the herbs
  * that help with a photo from the field guide and how to prepare them.
  *
@@ -231,8 +231,8 @@ uint32_t UrgencyColor(Urgency urgency) {
 }
 
 const char* UrgencyText(Urgency urgency) {
-  return urgency == Urgency::kEmergency ? "Volej 155 / 112"
-       : urgency == Urgency::kDoctor    ? "Ošetři a jdi k lékaři"
+  return urgency == Urgency::kEmergency ? "Ohrožení života – jednej hned"
+       : urgency == Urgency::kDoctor    ? "Vážné – ošetři, pak k lékaři"
                                         : "Zvládneš sám";
 }
 
@@ -544,7 +544,7 @@ void ShowTopic(FirstAidState* state, const Topic* topic) {
 
   if (topic->call_when[0] != '\0') {
     lv_obj_t* card = Card(body, width, kRedDark, kRed);
-    Label(card, "Volej 155, když:", kRed, &lvgl_font_google_sans_flex_24, width - 40);
+    Label(card, "Vážné, když:", kRed, &lvgl_font_google_sans_flex_24, width - 40);
     Label(card, topic->call_when, kText, &lvgl_font_google_sans_flex_24, width - 40);
   }
 
@@ -591,10 +591,6 @@ void ShowTopic(FirstAidState* state, const Topic* topic) {
       lv_obj_set_user_data(button,
           reinterpret_cast<void*>(static_cast<intptr_t>(other - &firstaid::TopicAt(0))));
     }
-  }
-  if (topic->category == Category::kPoison || topic->urgency == Urgency::kEmergency) {
-    lv_obj_t* card = Card(body, width, kCard);
-    Label(card, firstaid::kEmergencyNumbers, kBody, &lvgl_font_google_sans_flex_22, width - 36);
   }
 }
 
@@ -1005,17 +1001,25 @@ void SearchChanged(lv_event_t* event) {
   lv_timer_resume(state->search_timer);
 }
 
-void ShowNumbers(FirstAidState* state) {
+void ShowPriorities(FirstAidState* state) {
   lv_obj_t* body = nullptr;
-  PushPage(state, "Tísňová čísla", &body);
+  PushPage(state, "Co dřív", &body);
   const int width = state->width - 2 * kSide;
   lv_obj_t* card = Card(body, width, kRedDark, kRed);
-  Label(card, firstaid::kEmergencyNumbers, kText, &lvgl_font_google_sans_flex_32, width - 40);
-  Label(body, "Řekni: kdo volá, co se stalo, kde jsi (adresa, GPS z aplikace Maps), kolik je "
-      "zraněných. Nezavěšuj, dokud operátor neřekne.", kBody, &lvgl_font_google_sans_flex_24, width);
-  lv_obj_t* cpr = Button(body, "Resuscitace – návod", kRed, TopicButtonClicked, state, width, 80);
-  lv_obj_set_user_data(cpr, reinterpret_cast<void*>(static_cast<intptr_t>(
-      firstaid::FindTopic("cpr") - &firstaid::TopicAt(0))));
+  Label(card, firstaid::kPriorities, kText, &lvgl_font_google_sans_flex_28, width - 40);
+  for (const char* id : {"bleeding", "choking", "cpr", "unconscious", "shock", "hypothermia"}) {
+    const Topic* topic = firstaid::FindTopic(id);
+    if (topic == nullptr) {
+      continue;
+    }
+    lv_obj_t* button = Button(body, topic->title, topic->urgency == Urgency::kEmergency ? kRed : kChip,
+        TopicButtonClicked, state, width, 76);
+    lv_obj_set_user_data(button, reinterpret_cast<void*>(static_cast<intptr_t>(
+        topic - &firstaid::TopicAt(0))));
+  }
+  Label(body, "Když je to možné, dostaň zraněného k lékařské péči co nejdřív. Do té doby jsi "
+      "jeho pomoc ty: drž ho v teple, hlídej dech a nenechávej ho samotného.", kBody,
+      &lvgl_font_google_sans_flex_24, width);
 }
 
 void ViewDeleted(lv_event_t* event) {
@@ -1066,8 +1070,8 @@ lv_obj_t* CreateFirstAidView(lv_obj_t* parent, const app::AppEntry& app_entry,
   const int width = config.width - 2 * kSide;
   lv_obj_t* title = Label(container, "First Aid", kText, &lvgl_font_google_sans_flex_36);
   lv_obj_set_pos(title, kSide, kTitleTop);
-  lv_obj_t* call = Button(container, "155 · 112", kRed, [](lv_event_t* event) {
-    ShowNumbers(static_cast<FirstAidState*>(lv_event_get_user_data(event)));
+  lv_obj_t* call = Button(container, "Co dřív", kRed, [](lv_event_t* event) {
+    ShowPriorities(static_cast<FirstAidState*>(lv_event_get_user_data(event)));
   }, state, LV_SIZE_CONTENT, 60);
   lv_obj_align(call, LV_ALIGN_TOP_RIGHT, -kSide, kTitleTop - 6);
 

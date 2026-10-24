@@ -6,8 +6,8 @@
  * The steps follow the European Resuscitation Council guidelines 2021 and the
  * first aid manuals of the Czech Red Cross and the IFRC (2020). Doses are the
  * usual ones from the package leaflets of medicines sold in Czechia. This is a
- * guide for when no help is at hand, not a substitute for a doctor: every
- * screen says when to call 155 / 112.
+ * guide for when no rescue service can be reached: every guide lists the
+ * danger signs and when to get the person to medical care as soon as possible.
  */
 #pragma once
 
@@ -31,7 +31,7 @@ const char* CategoryName(Category category);
 enum class Urgency : uint8_t {
   kSelfCare = 0,    // can be handled at home
   kDoctor,          // see a doctor soon
-  kEmergency,       // call 155 / 112 now
+  kEmergency,       // life threatening, act now
 };
 
 // One guide page. Multi-line fields use '\n' between lines.
@@ -42,7 +42,7 @@ struct Topic {
   Urgency urgency;
   // Words people type: symptoms, synonyms, without diacritics too.
   const char* keywords;
-  // When to call 155 / 112 at once.
+  // Danger signs: when the condition is serious.
   const char* call_when;
   // What to do, in order.
   const char* steps;
@@ -118,6 +118,7 @@ const Supply& SupplyAt(size_t index);
 // What to do when someone ate a poisonous plant or mushroom; the Nature app
 // shows it on every species marked poisonous or deadly.
 extern const char* const kPoisoningSteps;
-extern const char* const kEmergencyNumbers;
+// What to deal with first when someone is badly hurt.
+extern const char* const kPriorities;
 
 }  // namespace lilygo_box::firstaid

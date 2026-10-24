@@ -53,8 +53,8 @@ constexpr Medicine kMedicines[] = {
  "prujem otrava nadymani otrava jidlem", F::kTablet, 250,
  0, 0, 1000, 4000, 6, 24, 40,
  "Průjem: dospělí 2–4 tablety 3–4× denně, děti od 2 let 1–2 tablety 3× denně.\n"
- "Otrava: jen na radu lékaře nebo TIS (obvykle 0,5–1 g na kg váhy jednorázově).",
- "Užívat s odstupem 2 hodiny od jiných léků – zachytí je. Ne při otravě žíravinami a benzínem."},
+ "Otrava: do hodiny od požití 1 g na kg váhy (dospělý až 50 g) jednorázově, rozdrcené ve vodě.",
+ "Užívat s odstupem 2 hodiny od jiných léků – zachytí je. Ne při otravě žíravinami, benzínem, alkoholem a kovy."},
 {"ors", "Rehydratační roztok", "Kulíšek, Normolyt, Enterodetox, ORS",
  "prujem zvraceni dehydratace odvodneni horko upal", F::kPowder, 0,
  0, 0, 0, 0, 0, 0, 0,
@@ -143,12 +143,12 @@ constexpr Medicine kMedicines[] = {
 {"salbutamol", "Salbutamol inhalátor (na předpis)", "Ventolin, Buventol",
  "astma dusnost piskot", F::kSpray, 0.1,
  0, 0, 0.1, 0, 0, 0, 0,
- "Záchvat: 1 vdech každých 30–60 s, až 10 vdechů, nejlépe přes nástavec. Bez zlepšení 155.",
+ "Záchvat: 1 vdech každých 30–60 s, až 10 vdechů, nejlépe přes nástavec. Bez zlepšení opakuj po 10 minutách.",
  "Jen pro toho, komu ho předepsal lékař."},
 {"epinephrine", "Adrenalinové pero (na předpis)", "EpiPen, Jext, Emerade",
  "anafylaxe alergicka reakce otok jazyka bodnuti vosa", F::kOther, 0.3,
  0, 0, 0.3, 0, 0, 0, 30,
- "Do zevní strany stehna, i přes oblečení. 0,3 mg od 30 kg, 0,15 mg pro děti 15–30 kg. Po 5–15 minutách bez zlepšení druhé pero. Vždy 155.",
+ "Do zevní strany stehna, i přes oblečení. 0,3 mg od 30 kg, 0,15 mg pro děti 15–30 kg. Po 5–15 minutách bez zlepšení druhé pero. Účinek trvá 10–20 minut – reakce se může vrátit, hlídej ho.",
  "Pro toho, komu bylo předepsáno; v ohrožení života ho lze použít."},
 };
 

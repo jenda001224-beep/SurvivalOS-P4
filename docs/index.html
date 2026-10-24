@@ -292,6 +292,11 @@
   .dl-list { list-style: none; display: grid; gap: 8px; margin-bottom: 18px; }
   .dl-list li { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 10px 14px; font-size: 14px; background: rgba(0, 0, 0, 0.25); }
   .dl-list li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl-list li .dl-name { display: flex; flex-direction: column; gap: 2px; white-space: normal; }
+  .dl-list li .dl-name b { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dl-list li .dl-name em { font-style: normal; color: var(--text-faint); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dl-list li .dl-x { flex: none; width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line-2); background: transparent; color: var(--text-faint); font-size: 18px; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; }
+  .dl-list li .dl-x:hover { color: var(--text); border-color: var(--text-faint); }
   .dl-list li small { color: var(--text-faint); font-family: var(--mono); font-size: 12px; }
   .dl-list a { flex: none; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; background: var(--signal); color: #190C02; font-weight: 750; font-size: 13px; border-radius: 10px; padding: 7px 12px; }
   .dl-list a svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -767,8 +772,8 @@
         <article class="tstep" data-screen="firstaid" data-label="First Aid">
           <div class="app-tag"><span class="mini" style="background:#B3261E"><svg><use href="assets/glyphs.svg#o-medical_services"/></svg></span>First Aid</div>
           <h2>Knows what to do. And what you have.</h2>
-          <p>Type what happened — a burn, a cough, a wasp, a tick — and get the steps, when to call
-            155, and what not to do. Keep your medicine cabinet in the phone: it shows which of your
+          <p>Made for when no ambulance is coming. Type what happened — a burn, a cough, a wasp,
+            a tick — and get the danger signs, the steps, and what not to do. Keep your medicine cabinet in the phone: it shows which of your
             medicines help, how many are left and the dose for each person by age and weight, and
             the herbs that help, with a photo from the field guide and how to make the tea.</p>
           <div class="chips"><span>~80 guides</span><span>Doses by weight</span><span>Medicine cabinet</span><span>Works without a card</span></div>
@@ -907,9 +912,9 @@
 
                 <div class="layer win firstaid" data-layer="firstaid">
                   <div class="abs ntitle">Popálenina</div>
-                  <div class="abs fbadge">Ošetři a jdi k lékaři</div>
+                  <div class="abs fbadge">Vážné – ošetři, pak k lékaři</div>
                   <div class="abs fcards">
-                    <div class="fcard fred"><b>Volej 155, když:</b><p>popálenina je větší než dlaň, na obličeji, rukou nebo kloubech, hluboká, u dětí…</p></div>
+                    <div class="fcard fred"><b>Vážné, když:</b><p>popálenina je větší než dlaň, na obličeji, rukou nebo kloubech, hluboká, u dětí…</p></div>
                     <div class="fstep"><i>1</i><p>Okamžitě chlaď vlažnou tekoucí vodou 20 minut.</p></div>
                     <div class="fstep"><i>2</i><p>Sundej prstýnky a hodinky, dokud není otok.</p></div>
                     <div class="fstep"><i>3</i><p>Překryj volně čistou fólií nebo sterilním krytím.</p></div>
@@ -1248,14 +1253,14 @@
             </div>
           </div>
           <div>
-            <div class="group-title">Translator · dictionary, phrasebook, speech</div>
+            <div class="group-title">Translator · dictionary, phrasebook, read aloud (no dictation)</div>
             <div class="items">
               <label class="item">
                 <input type="checkbox" data-item="tr-basic">
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
                 <b>Basic</b>
-                <span class="desc">Czech and English with German, French, Spanish, Italian, Portuguese, Polish, Slovak, Russian, Ukrainian, Chinese, Japanese, Arabic and Turkish.</span>
+                <span class="desc">Czech and English with German, French, Spanish, Italian, Portuguese, Polish, Slovak, Russian, Ukrainian, Chinese, Japanese, Arabic and Turkish. All 15 can be read aloud.</span>
                 <span class="meta"><span class="size" data-size="tr-basic"></span></span>
               </label>
               <label class="item">
@@ -1263,7 +1268,7 @@
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
                 <b>Europe</b>
-                <span class="desc">Every EU language and the rest of Europe, regional ones included — about 80.</span>
+                <span class="desc">Every EU language and the rest of Europe, regional ones included — about 80. 47 of them can be read aloud.</span>
                 <span class="meta"><span class="size" data-size="tr-europe"></span></span>
               </label>
               <label class="item">
@@ -1271,7 +1276,7 @@
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
                 <b>Americas</b>
-                <span class="desc">Spanish, Portuguese, French and Haitian Creole with Quechua, Guaraní, Nahuatl, Mayan languages, Navajo, Cherokee, Inuktitut and more.</span>
+                <span class="desc">Spanish, Portuguese, French and Haitian Creole with Quechua, Guaraní, Nahuatl, Mayan languages, Navajo, Cherokee, Inuktitut and more. 11 of them can be read aloud.</span>
                 <span class="meta"><span class="size" data-size="tr-americas"></span></span>
               </label>
               <label class="item">
@@ -1279,7 +1284,7 @@
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
                 <b>Africa</b>
-                <span class="desc">Arabic varieties, Swahili, Amharic, Hausa, Yoruba, Igbo, Zulu, Xhosa, Somali, Oromo and some 70 more.</span>
+                <span class="desc">Arabic varieties, Swahili, Amharic, Hausa, Yoruba, Igbo, Zulu, Xhosa, Somali, Oromo and some 70 more. 12 of them can be read aloud.</span>
                 <span class="meta"><span class="size" data-size="tr-africa"></span></span>
               </label>
               <label class="item">
@@ -1287,7 +1292,7 @@
                 <span class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 <span class="icon tr"><svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c1 3.5 3 6 6 7.5M11 5c-1 3.5-3.5 6.5-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg></span>
                 <b>Global</b>
-                <span class="desc">Every language Wiktionary describes — about 5,000. Holds all the bundles above.</span>
+                <span class="desc">Every language Wiktionary describes — about 5,000. Holds all the bundles above. 116 of them can be read aloud.</span>
                 <span class="meta"><span class="size" data-size="tr-global"></span></span>
               </label>
             </div>
@@ -1719,17 +1724,17 @@ Photo by David J. Stang (CC BY-SA).
   // Sizes in bytes. Kiwix links without a date always point at the newest
   // file, so their size is approximate and may grow a little.
   var ITEMS = {
-    "maps-cz": { title: "Czechia map", files: [{ name: "cz.pmtiles", url: RELEASE + "cz.pmtiles", bytes: 1703518651 }] },
-    "maps-europe12": { title: "Europe overview map", files: [
+    "maps-cz": { title: "Map of Czechia (every path)", files: [{ name: "cz.pmtiles", url: RELEASE + "cz.pmtiles", bytes: 1703518651 }] },
+    "maps-europe12": { title: "Map of Europe (overview)", files: [
       { name: "europe12.pmtilesaa", url: RELEASE + "europe12.pmtilesaa", bytes: 2097152000 },
       { name: "europe12.pmtilesab", url: RELEASE + "europe12.pmtilesab", bytes: 2097152000 },
       { name: "europe12.pmtilesac", url: RELEASE + "europe12.pmtilesac", bytes: 2097152000 },
       { name: "europe12.pmtilesad", url: RELEASE + "europe12.pmtilesad", bytes: 183863970 } ] },
-    "maps-world": { title: "World overview map", files: [
+    "maps-world": { title: "Map of the world (overview)", files: [
       { name: "world10.pmtilesaa", url: RELEASE + "world10.pmtilesaa", bytes: 2097152000 },
       { name: "world10.pmtilesab", url: RELEASE + "world10.pmtilesab", bytes: 1576695330 } ] },
     "nature": { title: "Field guide (world)", files: [{ name: "nature-world.svnat3", url: "https://github.com/jenda001224-beep/SurvivalOS-P4/releases/download/nature-2026-10/nature-world.svnat3", bytes: 0 }], soon: true },
-    "maps-planet": { title: "World map, detailed", files: [{ name: "v4.pmtiles", url: "https://data.source.coop/protomaps/openstreetmap/v4.pmtiles", bytes: 134812420554 }] },
+    "maps-planet": { title: "Map of the world (every path)", files: [{ name: "v4.pmtiles", url: "https://data.source.coop/protomaps/openstreetmap/v4.pmtiles", bytes: 134812420554 }] },
     "wiki-cs": { title: "Czech Wikipedia", files: [{ name: "wikipedia_cs_all_nopic.zim", url: KIWIX + "wikipedia_cs_all_nopic.zim", bytes: 3430401584 }] },
     "wiki-en": { title: "English Wikipedia", files: [{ name: "wikipedia_en_all_nopic.zim", url: KIWIX + "wikipedia_en_all_nopic.zim", bytes: 52690706555 }] },
     "tr-basic": { title: "Translator, Basic", files: [{ name: "translator-basic.svtr", url: TRANSLATOR + "translator-basic.svtr", bytes: 546295872 }] },
@@ -1755,12 +1760,23 @@ Photo by David J. Stang (CC BY-SA).
     boxes().forEach(function (box) {
       if (!box.checked) return;
       var key = box.getAttribute("data-item");
-      ITEMS[key].files.forEach(function (file) {
+      var files = ITEMS[key].files;
+      files.forEach(function (file, index) {
         total += file.bytes;
         if (file.bytes > 4294967295) needsExfat = true;
         var li = document.createElement("li");
+        // What it is first, the file name small and grey under it.
         var name = document.createElement("span");
-        name.textContent = file.name;
+        name.className = "dl-name";
+        var label = document.createElement("b");
+        label.textContent = ITEMS[key].title + (files.length > 1 ? " · part " + (index + 1) + " of " + files.length : "");
+        var fileName = document.createElement("em");
+        fileName.textContent = file.name;
+        name.appendChild(label); name.appendChild(fileName);
+        var remove = document.createElement("button");
+        remove.type = "button"; remove.className = "dl-x"; remove.textContent = "×";
+        remove.setAttribute("aria-label", "Remove " + ITEMS[key].title);
+        remove.addEventListener("click", function () { box.checked = false; render(); });
         var size = document.createElement("small");
         size.textContent = gb(file.bytes);
         var link = document.createElement("a");
@@ -1768,7 +1784,7 @@ Photo by David J. Stang (CC BY-SA).
         link.setAttribute("download", file.name);
         link.rel = "noopener";
         link.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Download';
-        li.appendChild(name); li.appendChild(size); li.appendChild(link);
+        li.appendChild(name); li.appendChild(size); li.appendChild(link); li.appendChild(remove);
         links.appendChild(li);
       });
     });

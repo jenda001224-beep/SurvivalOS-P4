@@ -5,7 +5,11 @@
  * Sources: European Resuscitation Council Guidelines 2021 (basic life support,
  * first aid), IFRC International First Aid, Resuscitation and Education
  * Guidelines 2020, Czech Red Cross first aid manual, WHO guidance on oral
- * rehydration and on snakebite, Toxikologické informační středisko (TIS, Praha).
+ * rehydration and on snakebite, wilderness first aid practice (WMS 2019).
+ *
+ * The phone is meant for when no rescue service can be called, so the guides
+ * never say "call 155": they list the danger signs, what to do alone, and when
+ * to get the person to medical care as soon as it can be done.
  */
 #include <cstring>
 
@@ -23,12 +27,12 @@ constexpr Topic kTopics[] = {
  "bezvedomi bezvědomí nereaguje omdlel omdlela lezi nehybne zotavovaci poloha stabilizovana",
  "Vždy, když člověk nereaguje na oslovení ani zatřesení.",
  "Zajisti své bezpečí (provoz, elektřina, plyn, oheň).\n"
- "Hlasitě oslov a zatřes rameny. Nereaguje? Volej o pomoc.\n"
+ "Hlasitě oslov a zatřes rameny. Nereaguje? Zavolej na lidi kolem.\n"
  "Polož ho na záda, zakloň hlavu (ruka na čelo, dva prsty pod bradu).\n"
  "Dívej se, poslouchej a cíť dech až 10 sekund.\n"
- "NEDÝCHÁ nebo dýchá jen lapavě: volej 155 (hlasitý odposlech) a začni resuscitaci, viz Resuscitace.\n"
+ "NEDÝCHÁ nebo dýchá jen lapavě: hned začni resuscitaci, viz Resuscitace.\n"
  "DÝCHÁ normálně: otoč ho do zotavovací polohy na bok, hlavu zakloněnou, ústa směrem k zemi.\n"
- "Volej 155. Každou minutu kontroluj dech až do příjezdu záchranky.\n"
+ "Každou minutu kontroluj dech. Nenechávej ho samotného; jakmile to jde, zajisti převoz k lékaři.\n"
  "Přikryj ho, aby neprochladl.",
  "Nedávej nic do úst, ani pití ani léky.\n"
  "Nenech ho ležet na zádech bez dozoru – může se udusit zvratky.\n"
@@ -37,15 +41,15 @@ constexpr Topic kTopics[] = {
 
 {"cpr", "Resuscitace (KPR) – dospělý", C::kEmergency, U::kEmergency,
  "resuscitace kpr masaz srdce nedycha zastava srdce masáž oživování defibrilator aed",
- "Ihned: 155. Kdo nedýchá normálně, má zástavu oběhu.",
- "Volej 155 a dej telefon na hlasitý odposlech. Operátor tě povede.\n"
- "Pošli někoho pro AED (defibrilátor) – bývá na nádražích, v obchodech, úřadech.\n"
+ "Kdo nereaguje a nedýchá normálně, má zástavu oběhu. Bez resuscitace zemře během minut.",
+  "Je-li vás víc, ať někdo hledá AED (defibrilátor) – bývá na nádražích, v obchodech, úřadech.\n"
  "Klekni si vedle, dlaně na sebe doprostřed hrudníku (dolní polovina hrudní kosti).\n"
  "Natažené paže, tlač kolmo dolů 5–6 cm hluboko, 100–120× za minutu (rytmus písně Stayin' Alive).\n"
  "Po každém stlačení nech hrudník úplně povolit.\n"
  "Umíš a chceš dýchat: po 30 stlačeních 2 vdechy (zaklonit hlavu, ucpat nos, vdech 1 s, hrudník se zvedne). Jinak jen nepřetržitě stlačuj.\n"
  "Přinesou AED: zapni ho a dělej, co říká. Elektrody na holý hrudník podle obrázku.\n"
- "Nepřestávej, dokud nepřijede záchranka, člověk se neprobere a nezačne normálně dýchat, nebo už nemůžeš. Ve dvou se střídejte každé 2 minuty.",
+ "Nepřestávej, dokud se člověk neprobere a nezačne normálně dýchat, nebo už nemůžeš. Ve dvou se střídejte každé 2 minuty.\n"
+ "Daleko od pomoci lze po 30 minutách bez známek života přestat. Výjimka: podchlazení, tonutí, zásah bleskem – tam pokračuj déle.",
  "Neztrácej čas hledáním pulsu.\n"
  "Nepřerušuj stlačování na déle než 10 sekund.\n"
  "Neboj se zlomených žeber – bez masáže člověk zemře.",
@@ -53,15 +57,14 @@ constexpr Topic kTopics[] = {
 
 {"cpr_child", "Resuscitace – dítě a kojenec", C::kEmergency, U::kEmergency,
  "resuscitace dite kojenec miminko nedycha batole kpr deti",
- "Ihned: 155.",
- "Volej 155 na hlasitý odposlech (jsi-li sám a nemáš telefon, nejdřív 1 minutu resuscituj, pak běž volat).\n"
+ "Dítě nereaguje a nedýchá normálně.",
  "Zakloň hlavu (kojenec jen do neutrální polohy) a zkontroluj dech 10 s.\n"
  "Začni 5 vdechy: kojenci ústy přes ústa i nos, dítěti ústy do úst s ucpaným nosem.\n"
  "Pak 30 stlačení : 2 vdechy, rychlost 100–120 za minutu.\n"
  "Kojenec (do 1 roku): stlačuj dvěma prsty nebo dvěma palci na dolní třetině hrudní kosti, asi 4 cm.\n"
  "Dítě: dlaní jedné ruky (u většího dítěte obě ruce) do středu hrudníku, asi 5 cm, tedy třetinu hloubky hrudníku.\n"
  "AED lze použít i u dětí – u malých dětí dětské elektrody, jinak dospělé (jedna vpředu, druhá na zádech).\n"
- "Pokračuj do příjezdu záchranky nebo dokud dítě nezačne dýchat.",
+ "Pokračuj, dokud dítě nezačne dýchat nebo už nemůžeš.",
  "Netřes dítětem.\n"
  "Nepřestávej kvůli hledání pulsu.",
  "", "", "cpr choking_child"},
@@ -73,8 +76,7 @@ constexpr Topic kTopics[] = {
  "Přestává kašlat nebo nemůže dýchat: předkloň ho a dej až 5 ran mezi lopatky hranou dlaně.\n"
  "Nepomohlo: až 5 stlačení nadbřišku (Heimlichův manévr) – stoupni si za něj, pěst mezi pupek a hrudní kost, druhou rukou chyť a prudce trhni dovnitř a nahoru.\n"
  "Střídej 5 úderů do zad a 5 stlačení, dokud těleso nevyletí.\n"
- "Volej 155, pokud se stav nelepší.\n"
- "Upadne do bezvědomí: polož ho na zem, volej 155 a začni resuscitaci (stlačování hrudníku může těleso uvolnit).\n"
+  "Upadne do bezvědomí: polož ho na zem a začni resuscitaci (stlačování hrudníku může těleso uvolnit).\n"
  "Po Heimlichově manévru musí vždy k lékaři – může mít vnitřní poranění.",
  "Nesahej naslepo prsty do krku.\n"
  "Těhotným a velmi obézním místo nadbřišku stlačuj hrudník.",
@@ -87,7 +89,7 @@ constexpr Topic kTopics[] = {
  "KOJENEC: polož si ho na předloktí hlavou dolů, podpírej čelist, a dej 5 úderů do zad mezi lopatky.\n"
  "Pak ho otoč na záda, hlavou níž, a dvěma prsty dej 5 stlačení hrudníku (jako při resuscitaci, ale pomaleji a prudčeji).\n"
  "DÍTĚ nad 1 rok: předkloň ho, 5 úderů mezi lopatky, pak 5 stlačení nadbřišku jako u dospělého.\n"
- "Střídej, dokud těleso nevypadne. Volej 155.\n"
+ "Střídej, dokud těleso nevypadne.\n"
  "Bezvědomí: 5 vdechů a resuscitace 30:2, před každým vdechem se podívej do úst – viditelné těleso vyndej.",
  "U kojence nikdy nestlačuj břicho.\n"
  "Nedrž dítě za nohy hlavou dolů.\n"
@@ -99,7 +101,7 @@ constexpr Topic kTopics[] = {
  "Vždy u silného krvácení. Krev stříká nebo rychle teče, nejde zastavit tlakem, nebo je člověk bledý, studený a zmatený.",
  "Natáhni rukavice nebo sáček na ruku, je-li po ruce – ale nezdržuj se.\n"
  "Přímo na ránu silně tlač dlaní přes čistou látku, obvaz nebo oblečení.\n"
- "Volej 155 (nebo ať volá někdo jiný). Člověka posaď nebo polož.\n"
+ "Člověka posaď nebo polož.\n"
  "Tlač nepřetržitě aspoň 10 minut, neodkrývej ránu.\n"
  "Prosakuje: přidej další vrstvu a tlač dál, nebo přilož tlakový obvaz (viz Tlakový obvaz).\n"
  "Život ohrožující krvácení z končetiny, které tlak nezastaví: škrtidlo (turniket) 5–7 cm nad ránu, utahuj, až krvácení přestane. Zapiš čas utažení. Nepovoluj.\n"
@@ -112,32 +114,32 @@ constexpr Topic kTopics[] = {
 
 {"shock", "Šok", C::kEmergency, U::kEmergency,
  "sok šok bledy studeny pot zrychleny tep slabost po urazu ztrata krve",
- "Šok je vždy důvod volat 155.",
+ "Bledý, studený, opocený, zrychlený slabý tep, zmatenost – šok ohrožuje život. Zastav příčinu a co nejdřív dostaň člověka k lékařské péči.",
  "Odstraň příčinu, je-li to možné (zastav krvácení, chlaď popáleninu).\n"
  "Polož ho na záda. Při bezvědomí do zotavovací polohy.\n"
  "Uvolni těsný oděv, přikryj ho proti chladu, i zespodu.\n"
  "Uklidňuj, mluv s ním, nenechávej ho samotného.\n"
- "Sleduj dech a vědomí do příjezdu záchranky.",
- "Nedávej jíst ani pít (může potřebovat operaci).\n"
+ "Sleduj dech a vědomí.",
+ "Nedávej jíst. Pít jen po malých doušcích, je-li při plném vědomí a pomoc je daleko.\n"
  "Nezvedej nohy, jsou-li zraněné nebo je podezření na zlomeninu pánve či páteře.",
  "", "", "bleeding burns anaphylaxis"},
 
 {"heart_attack", "Bolest na hrudi, infarkt", C::kEmergency, U::kEmergency,
  "infarkt bolest na hrudi tlak na hrudi srdce svira hrudnik vystreluje do ruky celist",
- "Ihned 155: tlak nebo pálení na hrudi déle než pár minut, vystřeluje do paže, čelisti, zad, s pocením, dušností nebo nevolností.",
- "Volej 155.\n"
+ "Tlak nebo pálení na hrudi déle než pár minut, vystřeluje do paže, čelisti, zad, s pocením, dušností nebo nevolností.",
+ "Úplný klid, žádná námaha – co nejdřív k lékařské péči (nést nebo vézt, ne chodit).\n"
  "Posaď ho do pohodlné polohy (polosed), uvolni oděv, uklidňuj.\n"
  "Není-li alergický na aspirin, nekrvácí a nebere léky na ředění krve: ať rozkouše 1 tabletu kyseliny acetylsalicylové (250–500 mg, Aspirin, Acylpyrin).\n"
  "Má-li vlastní nitroglycerin od lékaře, ať ho použije podle návodu.\n"
- "Pošli někoho pro AED. Upadne do bezvědomí a nedýchá: resuscitace.",
+ "Upadne do bezvědomí a nedýchá: resuscitace.",
  "Nenech ho chodit ani se namáhat.\n"
  "Nepodávej aspirin dětem.",
  "acetylsalicylic", "", "cpr stroke"},
 
 {"stroke", "Mrtvice (cévní mozková příhoda)", C::kEmergency, U::kEmergency,
  "mrtvice mozkova prihoda pokleslý koutek povisly ochrnuti mluvi nesrozumitelne slabost ruky fast",
- "Ihned 155 při kterémkoli z příznaků. Každá minuta znamená miliony mozkových buněk.",
- "Test FAST: Face – pokleslý koutek úst při úsměvu. Arm – nezvedne obě paže stejně. Speech – mluví nesrozumitelně. Time – volej 155.\n"
+ "Kterýkoli z příznaků FAST. Léčba v nemocnici pomáhá jen v prvních hodinách – každá minuta znamená miliony mozkových buněk.",
+ "Test FAST: Face – pokleslý koutek úst při úsměvu. Arm – nezvedne obě paže stejně. Speech – mluví nesrozumitelně. Time – čas: co nejrychleji do nemocnice.\n"
  "Zapiš čas, kdy příznaky začaly nebo kdy byl naposledy v pořádku – lékaři to potřebují.\n"
  "Posaď nebo polož se zvednutou hlavou, uklidňuj.\n"
  "Bezvědomí s dýcháním: zotavovací poloha na ochrnutý bok.",
@@ -173,19 +175,19 @@ constexpr Topic kTopics[] = {
  "Posaď ho, ať se předkloní a opře o ruce (vsedě nebo vestoje u stolu).\n"
  "Ať použije svůj úlevový inhalátor (modrý, salbutamol): 1 vdech, nejlépe přes nástavec, opakovat až 10 vdechů (1 každé 30–60 s).\n"
  "Uklidňuj, ať dýchá pomalu.\n"
- "Bez zlepšení za 10 minut: volej 155 a opakuj inhalátor.",
+ "Bez zlepšení za 10 minut opakuj inhalátor; těžký záchvat je důvod co nejdřív k lékaři.",
  "Neukládej ho do lehu.",
  "", "", "anaphylaxis"},
 
 {"anaphylaxis", "Anafylaxe – těžká alergická reakce", C::kEmergency, U::kEmergency,
  "anafylaxe alergie alergicka reakce otok jazyka otok rtu duseni kopřivka po bodnutí po jídle oriesky adrenalin epipen",
- "Ihned 155: otok jazyka nebo hrdla, chrapot, dušnost, pískání, slabost, závrať, bledost, bezvědomí po kontaktu s alergenem.",
+ "Otok jazyka nebo hrdla, chrapot, dušnost, pískání, slabost, závrať, bledost, bezvědomí po kontaktu s alergenem.",
  "Má-li adrenalinové pero (EpiPen, Jext, Emerade): ihned ho použij do zevní strany stehna (i přes oblečení), drž 3–10 s podle návodu.\n"
- "Volej 155 a řekni ANAFYLAXE.\n"
- "Dušnost: posaď ho. Slabost, bledost: polož ho a zvedni mu nohy. Bezvědomí s dechem: zotavovací poloha.\n"
+  "Dušnost: posaď ho. Slabost, bledost: polož ho a zvedni mu nohy. Bezvědomí s dechem: zotavovací poloha.\n"
  "Bez zlepšení za 5 minut: druhé pero, má-li ho.\n"
  "Nedýchá: resuscitace.\n"
- "Antihistaminikum (cetirizin, loratadin) pomůže na svědění a kopřivku, ale adrenalin nenahradí.",
+ "Antihistaminikum (cetirizin, loratadin) dej hned, jakmile polyká – pomůže na kopřivku a otok, ale adrenalin nenahradí.\n"
+ "Reakce se může za pár hodin vrátit: hlídej ho do druhého dne.",
  "Nenech ho stát nebo chodit, ani když se mu uleví.\n"
  "Nečekej, jestli to přejde.",
  "cetirizine loratadine", "", "insect_sting allergy cpr"},
@@ -196,17 +198,17 @@ constexpr Topic kTopics[] = {
  "Je při vědomí a umí polykat: dej mu 15–20 g cukru – 4–5 kostek cukru, sklenici slazeného nápoje nebo džusu, glukózové tablety.\n"
  "Za 15 minut se nezlepší: dej znovu.\n"
  "Až se zlepší, ať sní něco s pomalými sacharidy (chléb, sušenka).\n"
- "Bezvědomí: zotavovací poloha, volej 155, nic do úst.",
+ "Bezvědomí: zotavovací poloha, nic do úst.",
  "Nedávej jídlo ani pití člověku v bezvědomí.\n"
  "Nedávej inzulin.",
  "", "", "unconscious"},
 
 {"drowning", "Tonutí", C::kEmergency, U::kEmergency,
  "tonuti tonutí utopil voda vytazeny z vody nedycha",
- "Vždy. I když se zdá v pořádku, musí do nemocnice (voda v plicích může dýchání zhoršit za několik hodin).",
+ "Kašel, dušnost, zmatenost i hodiny po vytažení – voda v plicích může dýchání zhoršit. I když se zdá v pořádku, co nejdřív k lékaři.",
  "Nepouštěj se do vody, pokud nejsi vycvičený – podej tyč, lano, plovoucí předmět.\n"
- "Na břehu zkontroluj dech. Nedýchá: volej 155 a začni 5 vdechy, pak resuscitace 30:2.\n"
- "Dýchá: zotavovací poloha, přikryj, zahřej, volej 155.\n"
+ "Na břehu zkontroluj dech. Nedýchá: začni 5 vdechy, pak resuscitace 30:2.\n"
+ "Dýchá: zotavovací poloha, přikryj, zahřej a do druhého dne ho hlídej.\n"
  "Zvrací při resuscitaci: otoč ho na bok, vyčisti ústa, pokračuj.",
  "Nesnaž se vylévat vodu z plic, ztrácíš čas.\n"
  "Neskákej do neznámé vody pro tonoucího.",
@@ -214,9 +216,9 @@ constexpr Topic kTopics[] = {
 
 {"electric", "Úraz elektrickým proudem", C::kEmergency, U::kEmergency,
  "elektricky proud uraz proudem zasah elektrinou kopnul proud dráty",
- "Vždy po úrazu vysokým napětím, při bezvědomí, popáleninách nebo bušení srdce. I po nízkém napětí k lékaři.",
+ "Bezvědomí, popáleniny, nepravidelný tep po úrazu proudem – i když se zdá v pořádku, srdce se může rozbušit později: hlídej ho a co nejdřív k lékaři.",
  "Nejdřív vypni proud (jistič, vytáhni zástrčku). Nesahej na člověka, dokud je pod proudem.\n"
- "Vysoké napětí (dráty venku, železnice): drž se 20 m daleko a volej 155.\n"
+ "Vysoké napětí (dráty venku, železnice): drž se aspoň 20 m daleko, dokud vedení není vypnuté.\n"
  "Nedýchá: resuscitace. Dýchá: zotavovací poloha.\n"
  "Popáleniny (vstup a výstup proudu) chlaď vodou a překryj sterilně.",
  "Neodtahuj ho holýma rukama ani kovovým předmětem.",
@@ -256,7 +258,7 @@ constexpr Topic kTopics[] = {
 
 {"wound_puncture", "Bodná rána, zabodnutý předmět", C::kInjury, U::kDoctor,
  "bodna rana zabodnuty predmet nuz hrebik pichnuti zarazeny kus dreva",
- "Hluboká bodná rána do hrudníku, břicha, krku nebo hlavy, nebo zabodnutý předmět: 155.",
+ "Hluboká bodná rána do hrudníku, břicha, krku nebo hlavy, nebo zabodnutý předmět – ohrožení života.",
  "Zabodnutý předmět nevytahuj – drží cévy zavřené.\n"
  "Obal ho a obvaž kolem něj tak, aby se nehýbal (např. srolované obvazy z obou stran).\n"
  "Hrudník: rána sání vzduchu – přelož ji, ale nelep vzduchotěsně ze všech stran; nech ho v polosedu.\n"
@@ -286,7 +288,7 @@ constexpr Topic kTopics[] = {
 
 {"fracture", "Zlomenina", C::kInjury, U::kDoctor,
  "zlomenina zlomena noha ruka kost deformace nemuze stoupnout",
- "Otevřená zlomenina, zlomenina stehna, pánve, páteře nebo lebky, velká deformace, končetina pod zlomeninou je studená, bledá nebo necitlivá: 155.",
+ "Otevřená zlomenina, zlomenina stehna, pánve, páteře nebo lebky, velká deformace, končetina pod zlomeninou je studená, bledá nebo necitlivá – co nejdřív k lékaři.",
  "Nehýbej zlomenou částí, nech ji v poloze, ve které je.\n"
  "Otevřená zlomenina: zakryj ránu sterilně, zastav krvácení tlakem kolem kosti, ne na ni.\n"
  "Znehybni: dlaha (desky, klacky, srolované noviny) přes oba sousední klouby, obvázat, ne příliš těsně. Ruku do šátkového závěsu.\n"
@@ -317,7 +319,7 @@ constexpr Topic kTopics[] = {
 
 {"dislocation", "Vykloubení", C::kInjury, U::kDoctor,
  "vykloubeni vymknuti ramene vykloubene rameno prst kloub mimo",
- "Vždy k lékaři. 155 když je končetina pod kloubem studená, bledá nebo necitlivá.",
+ "Končetina pod kloubem je studená, bledá nebo necitlivá – co nejdřív k lékaři.",
  "Znehybni kloub v poloze, ve které je (rameno: šátkový závěs a podložit).\n"
  "Chlaď přes látku.\n"
  "Bolest: paracetamol nebo ibuprofen.\n"
@@ -327,7 +329,7 @@ constexpr Topic kTopics[] = {
 
 {"head_injury", "Úraz hlavy, otřes mozku", C::kInjury, U::kDoctor,
  "uraz hlavy otres mozku uder do hlavy bouchl se do hlavy padl na hlavu boule",
- "Bezvědomí i krátké, zvracení, zmatenost, ospalost, silná bolest hlavy, různě velké zornice, tekutina z nosu nebo uší, křeče, slabost končetin, u dětí neobvyklé chování: 155.",
+ "Bezvědomí i krátké, zvracení, zmatenost, ospalost, silná bolest hlavy, různě velké zornice, tekutina z nosu nebo uší, křeče, slabost končetin, u dětí neobvyklé chování – krvácení do mozku, co nejdřív k lékaři.",
  "Posaď ho a přilož studený obklad.\n"
  "Krvácí-li hlava, tlač na ránu – hlava krvácí silně, ale většinou to není nebezpečné.\n"
  "Bezvědomí: kontroluj dech, při podezření na páteř hýbej hlavou co nejméně; dýchá-li, zotavovací poloha jen pokud musíš odejít nebo zvrací.\n"
@@ -339,9 +341,8 @@ constexpr Topic kTopics[] = {
 
 {"spine", "Podezření na poranění páteře", C::kInjury, U::kEmergency,
  "pater páteř zada krk upadl z vysky nehoda skok do vody necitlive nohy brneni",
- "Vždy 155: pád z výšky, skok do mělké vody, dopravní nehoda, bolest krku nebo zad, brnění či necitlivost končetin.",
+ "Pád z výšky, skok do mělké vody, dopravní nehoda, bolest krku nebo zad, brnění či necitlivost končetin.",
  "Řekni mu, ať se nehýbe. Drž mu hlavu oběma rukama v poloze, ve které je.\n"
- "Volej 155.\n"
  "Hýbej s ním jen když hrozí nebezpečí (požár, voda) nebo nedýchá.\n"
  "Nedýchá: polož ho na záda co nejšetrněji (ve více lidech, hlava–krk–trup v jedné ose) a resuscituj.",
  "Nezkoušej, jestli hýbe nohama.\n"
@@ -350,7 +351,7 @@ constexpr Topic kTopics[] = {
 
 {"chest_injury", "Poranění hrudníku", C::kInjury, U::kEmergency,
  "hrudnik poraneni zebra zlomena zebra rana do hrudi dusnost po uraze",
- "Dušnost, rána do hrudníku, vykašlávání krve, zlomená žebra u starších lidí: 155.",
+ "Dušnost, rána do hrudníku, vykašlávání krve, zlomená žebra u starších lidí – vážné.",
  "Posaď ho do polosedu, nakloněného na poraněnou stranu.\n"
  "Otevřenou ránu, která sípe, překryj (fólie, obal) a přilep jen ze tří stran, aby vzduch mohl ven.\n"
  "Zlomená žebra neobvazuj kolem dokola.\n"
@@ -360,7 +361,7 @@ constexpr Topic kTopics[] = {
 
 {"abdominal_injury", "Poranění břicha", C::kInjury, U::kEmergency,
  "bricho poraneni rana do bricha uder do bricha vyhrezle strevo",
- "Vždy 155.",
+ "Každé pronikající poranění břicha ohrožuje život.",
  "Polož ho na záda s pokrčenými koleny (podložit).\n"
  "Vyhřezlé střevo nezatlačuj zpět – překryj vlhkým čistým krytím (fólie, vlhká látka).\n"
  "Hlídej šok, přikryj.",
@@ -369,10 +370,10 @@ constexpr Topic kTopics[] = {
 
 {"amputation", "Utržená část těla (prst, končetina)", C::kInjury, U::kEmergency,
  "amputace utrzeny prst useknuty prst urizl si prst",
- "Vždy 155.",
+ "Vždy – hlavní je zastavit krvácení.",
  "Zastav krvácení tlakem, u končetiny případně škrtidlem.\n"
  "Utrženou část zabal do suché sterilní gázy, dej do sáčku, sáček zavaž a vlož do dalšího sáčku s vodou a ledem.\n"
- "Pošli ji se zraněným do nemocnice.\n"
+ "Vezmi ji se zraněným k lékaři – přišít se dá do 6–12 hodin.\n"
  "Hlídej šok.",
  "Utrženou část nedávej přímo na led ani do vody.\n"
  "Nečisti ji.",
@@ -403,7 +404,7 @@ constexpr Topic kTopics[] = {
 
 {"eye_foreign", "Cizí těleso v oku", C::kInjury, U::kDoctor,
  "oko cizi teleso v oku smitko v oku pisek v oku zabodnute v oku",
- "Zabodnuté těleso, poranění oka, zhoršené vidění: zakrýt obě oči a k lékaři / 155.",
+ "Zabodnuté těleso, poranění oka, zhoršené vidění: zakryj obě oči a k lékaři.",
  "Nemnout oko.\n"
  "Vyplach: hlavu nakloň na stranu oka, lij čistou vodu od vnitřního koutku ven několik minut.\n"
  "Smítko na víčku vyndej rohem čistého kapesníku.\n"
@@ -413,7 +414,7 @@ constexpr Topic kTopics[] = {
 
 {"eye_chemical", "Poleptání oka, chemikálie v oku", C::kInjury, U::kEmergency,
  "polepteni oka chemikalie v oku louh vapno kyselina sprej do oci",
- "Vždy k lékaři, louh a vápno: 155.",
+ "Louh a vápno jsou nejhorší – vyplachuj dlouho, pak k lékaři.",
  "Okamžitě vyplachuj proudem vlažné vody aspoň 15–20 minut, oko drž otevřené.\n"
  "Vyplachuj od nosu ven, aby voda netekla do druhého oka.\n"
  "Vyndej kontaktní čočky.\n"
@@ -443,7 +444,7 @@ constexpr Topic kTopics[] = {
 
 {"burns", "Popálenina", C::kInjury, U::kDoctor,
  "popalenina popálenina opareni opaření spaleni horka voda ohen zehlicka puchyr",
- "Popálenina větší než dlaň postiženého, na obličeji, rukou, genitálu, kloubech, hluboká (bílá, hnědá, necitlivá), u dětí a starších, vdechnutí kouře, chemická nebo elektrická: 155 nebo k lékaři.",
+ "Popálenina větší než dlaň postiženého, na obličeji, rukou, genitálu, kloubech, hluboká (bílá, hnědá, necitlivá), u dětí a starších, vdechnutí kouře, chemická nebo elektrická – vážná popálenina.",
  "Okamžitě chlaď vlažnou tekoucí vodou (15–25 °C) 20 minut. Platí i do 3 hodin po popálení.\n"
  "Během chlazení sundej prstýnky, hodinky, oblečení (co nepřilnulo).\n"
  "Pak překryj volně čistou fólií (potravinová fólie, neutahovat) nebo sterilním nepřilnavým krytím.\n"
@@ -460,7 +461,7 @@ constexpr Topic kTopics[] = {
 
 {"chemical_burn", "Poleptání kůže", C::kInjury, U::kDoctor,
  "polepteni kuze chemikalie louh kyselina vapno cistic",
- "Velká plocha, obličej, oči, louh, nebo bolest neustupuje: 155.",
+ "Velká plocha, obličej, oči, louh, nebo bolest neustupuje – vážné.",
  "Chraň se rukavicemi.\n"
  "Suchou chemikálii (vápno) nejdřív smeť, pak oplachuj.\n"
  "Oplachuj velkým množstvím vody aspoň 20 minut, sundej zasažené oblečení.\n"
@@ -498,7 +499,7 @@ constexpr Topic kTopics[] = {
 
 {"bandage_pressure", "Tlakový obvaz", C::kBandage, U::kEmergency,
  "tlakovy obvaz zastavit krvaceni obvaz na krvaceni",
- "Krvácení prosakuje i přes tlakový obvaz: tlač rukou dál, 155.",
+ "Krvácení prosakuje i přes tlakový obvaz: tlač rukou dál; krvácení z končetiny zastav škrtidlem.",
  "Na ránu polož sterilní krytí (polštářek obvazu).\n"
  "Na něj tlakovou vrstvu – srolované obinadlo nebo jiný tvrdší předmět velikosti rány.\n"
  "Pevně převaž několika otáčkami přes tlakovou vrstvu.\n"
@@ -703,7 +704,7 @@ constexpr Topic kTopics[] = {
 
 {"headache", "Bolest hlavy", C::kIllness, U::kSelfCare,
  "bolest hlavy hlava migrena bolí hlava",
- "Náhlá nejhorší bolest v životě, po úrazu, s horečkou a ztuhlým krkem, s poruchou řeči, vidění, slabostí, zmateností: 155.",
+ "Náhlá nejhorší bolest v životě, po úrazu, s horečkou a ztuhlým krkem, s poruchou řeči, vidění, slabostí, zmateností – vážné, co nejdřív k lékaři.",
  "Napij se, odpočiň v klidu a tmě.\n"
  "Studený obklad na čelo nebo krk.\n"
  "Lék: paracetamol nebo ibuprofen.\n"
@@ -729,7 +730,7 @@ constexpr Topic kTopics[] = {
 
 {"back_pain", "Bolest zad a svalů", C::kIllness, U::kSelfCare,
  "bolest zad bolí záda kriz hold namozeny sval svaly natazeny sval",
- "Necitlivost v rozkroku, nemůže močit nebo udržet stolici, slabost nohou, horečka, po úrazu: 155 / lékař.",
+ "Necitlivost v rozkroku, nemůže močit nebo udržet stolici, slabost nohou, horečka, po úrazu – co nejdřív k lékaři.",
  "Zůstaň v pohybu, jak to jde, ne dlouho v posteli.\n"
  "Teplo (teplá sprcha, termofor) na ztuhlé svaly.\n"
  "Lék: ibuprofen nebo gel s diklofenakem.",
@@ -753,7 +754,7 @@ constexpr Topic kTopics[] = {
 
 {"allergy", "Alergie, kopřivka, svědění", C::kIllness, U::kSelfCare,
  "alergie kopřivka koprivka svedeni vyrazka pyl senna ryma kytka alergie na",
- "Otok rtů, jazyka, hrdla, dušnost, slabost: anafylaxe, 155.",
+ "Otok rtů, jazyka, hrdla, dušnost, slabost: anafylaxe – viz Anafylaxe.",
  "Vyhni se alergenu (pyl, zvíře, jídlo).\n"
  "Antihistaminikum: cetirizin nebo loratadin.\n"
  "Svědění kůže: chladivý obklad, hydrokortizonový krém na malou plochu.\n"
@@ -787,7 +788,7 @@ constexpr Topic kTopics[] = {
 
 {"eczema_rash", "Vyrážka, ekzém, opruzeniny", C::kIllness, U::kSelfCare,
  "vyrazka vyrážka ekzem opruzeniny suchá kuže svědí kuze plisen",
- "Vyrážka, která nezmizí při stlačení sklenicí, s horečkou: 155 (meningitida). Puchýře po celém těle, otok obličeje.",
+ "Vyrážka, která nezmizí při stlačení sklenicí, s horečkou: možná meningitida – co nejdřív k lékaři. Puchýře po celém těle, otok obličeje.",
  "Kůži udržuj čistou a suchou, promašťuj neparfémovaným krémem.\n"
  "Svědění: chladivé obklady, krátce hydrokortizon.\n"
  "Opruzeniny: vysušit, zinková mast.\n"
@@ -801,22 +802,21 @@ constexpr Topic kTopics[] = {
 // ── Otravy, kousnutí, bodnutí ───────────────────────────────────────────────
 {"poisoning", "Otrava – co dělat", C::kPoison, U::kEmergency,
  "otrava otravy snědl spolkl vypil jed chemikalie tablety predavkovani leky",
- "Bezvědomí, křeče, dušnost, nebo nevíš, co a kolik snědl: 155. Jinak volej Toxikologické informační středisko: 224 919 293 nebo 224 915 402 (nonstop).",
+ "Bezvědomí, křeče, dušnost, žíravina, nebo nevíš, co a kolik snědl – sleduj ho a co nejdřív k lékaři.",
  "Zjisti co, kolik a kdy snědl nebo vypil. Obal, zbytek, rostlinu nebo houbu vezmi s sebou.\n"
- "Volej TIS (224 919 293) nebo 155 – řeknou ti, co dělat.\n"
+ "Do hodiny od snědení (léky, rostlina, houby – ne žíravina, benzín, alkohol ani kovy) pomůže živočišné uhlí: rozdrť tablety ve vodě, dospělý až 50 g, dítě 1 g na kg váhy.\n"
  "V ústech zbytky: vypláchni ústa vodou.\n"
- "Živočišné uhlí dej jen, když to doporučí TIS nebo lékař.\n"
- "Bezvědomí s dýcháním: zotavovací poloha.",
+  "Bezvědomí s dýcháním: zotavovací poloha.",
  "Nevyvolávej zvracení (ne při žíravinách, benzínu, saponátech!).\n"
  "Nedávej mléko ani olej.",
  "activated_charcoal", "", "plant_poisoning mushroom_poisoning co_poisoning"},
 
 {"plant_poisoning", "Otrava rostlinou", C::kPoison, U::kEmergency,
  "otrava rostlinou snedl rostlinu bobule jedovata rostlina dite snedlo kytku list",
- "Potíže s dýcháním, křeče, bezvědomí, poruchy srdce: 155. Vždy volej TIS 224 919 293.",
+ "Potíže s dýcháním, křeče, bezvědomí, nepravidelný tep.",
  "Vyndej z úst zbytky rostliny a vypláchni ústa.\n"
  "Zjisti, co to bylo – rostlinu nebo foto s sebou (v aplikaci Nature ji můžeš najít).\n"
- "Volej TIS 224 919 293 nebo 155.\n"
+ "Do hodiny od snědení: živočišné uhlí (viz Otrava – co dělat).\n"
  "Při podráždění kůže omyj mýdlem a vodou.",
  "Nevyvolávej zvracení.\n"
  "Nečekej na příznaky – u některých rostlin přijdou za hodiny.",
@@ -824,10 +824,10 @@ constexpr Topic kTopics[] = {
 
 {"mushroom_poisoning", "Otrava houbami", C::kPoison, U::kEmergency,
  "otrava houbami houby muchomurka zelena snedl houby nevolno po houbach",
- "Vždy do nemocnice, když se po houbách objeví zvracení a průjem – zvlášť pokud přišly 6 a více hodin po jídle (muchomůrka zelená, i když se pak uleví!).",
- "Volej TIS 224 919 293 nebo 155.\n"
+ "Zvracení a průjem 6 a více hodin po jídle hub znamená možnou muchomůrku zelenou – i když se pak uleví, hrozí selhání jater. Co nejdřív do nemocnice.",
+ "Do hodiny od jídla: živočišné uhlí (viz Otrava – co dělat).\n"
  "Schovej zbytky jídla, odpad z čištění hub, zvratky – pomohou určit houbu.\n"
- "Zapiš, kdy jedl a kdy začaly potíže. Kdo jedl totéž, musí k lékaři taky.\n"
+ "Zapiš, kdy jedl a kdy začaly potíže. Kdo jedl totéž, hlídej i jeho.\n"
  "Pij po troškách, při průjmu rehydratační roztok.",
  "Nečekej, až se to zlepší – u nejnebezpečnějších hub se po 1–2 dnech na čas uleví a pak selžou játra.\n"
  "Nevyvolávej zvracení bez porady.",
@@ -835,16 +835,15 @@ constexpr Topic kTopics[] = {
 
 {"co_poisoning", "Otrava kouřem a oxidem uhelnatým", C::kPoison, U::kEmergency,
  "otrava co oxid uhelnaty kour karma kamna bolest hlavy v mistnosti dym",
- "Vždy 155.",
+ "Bolest hlavy, závrať, nevolnost více lidí v jedné místnosti, zmatenost, bezvědomí.",
  "Vyveď lidi na čerstvý vzduch, otevři okna (sám se neotrav – zadrž dech, nevstupuj do zakouřeného prostoru).\n"
- "Volej 155 a hasiče 150.\n"
- "Bezvědomí: kontroluj dech, resuscitace.",
+  "Bezvědomí: kontroluj dech, resuscitace.",
  "Nezapínej spotřebiče, nerozsvěcuj (riziko výbuchu u plynu).",
  "", "", "cpr"},
 
 {"alcohol", "Opilost, otrava alkoholem", C::kPoison, U::kDoctor,
  "alkohol opily otrava alkoholem opilost vypil moc",
- "Nereaguje, dýchá pomalu nebo nepravidelně, je studený, zvrací v bezvědomí, má křeče: 155.",
+ "Nereaguje, dýchá pomalu nebo nepravidelně, je studený, zvrací v bezvědomí, má křeče – ohrožení života.",
  "Nenechávej ho samotného.\n"
  "Spí: zotavovací poloha na boku, přikryj, kontroluj dech.\n"
  "Je-li při vědomí, ať pije vodu.",
@@ -853,11 +852,11 @@ constexpr Topic kTopics[] = {
 
 {"insect_sting", "Bodnutí hmyzem (včela, vosa, sršeň)", C::kPoison, U::kSelfCare,
  "bodnuti vosa vcela srsen bodla vosa zihadlo otok po bodnuti",
- "Dušnost, otok jazyka nebo krku, slabost, kopřivka po celém těle: anafylaxe, 155. Bodnutí do úst nebo krku: 155.",
+ "Dušnost, otok jazyka nebo krku, slabost, kopřivka po celém těle: anafylaxe. Bodnutí do úst nebo krku – otok může ucpat dýchací cesty.",
  "Včelí žihadlo vyndej co nejdřív seškrábnutím nehtem nebo kartou.\n"
  "Omyj a chlaď ledem přes látku.\n"
  "Svědění a otok: antihistaminikum (cetirizin), hydrokortizonový krém.\n"
- "Bodnutí v ústech: cucat led, volat 155.",
+ "Bodnutí v ústech: cucat led, dát antihistaminikum a sledovat dýchání.",
  "Nemačkej žihadlo prsty.",
  "cetirizine loratadine hydrocortisone",
  "Plantago major|Jitrocel větší|rozmačkaný list přiložit na bodnutí\n"
@@ -877,11 +876,11 @@ constexpr Topic kTopics[] = {
 
 {"snake_bite", "Uštknutí hadem (zmije)", C::kPoison, U::kEmergency,
  "ustknuti had zmije kousl had uštknutí",
- "Vždy volej 155 nebo TIS 224 919 293. Děti, starší lidé a alergici: 155.",
+ "Otok šířící se po končetině, zvracení, průjem, slabost, dušnost, otok jazyka – co nejdřív k lékaři (protijed je jen v nemocnici). Nejvíc ohrožené jsou děti a staří lidé.",
  "Zachovej klid, polož ho, končetinu znehybni (dlaha, šátek) a drž ji níž než srdce.\n"
  "Sundej prstýnky, hodinky (bude otok).\n"
  "Ránu omyj, sterilně překryj.\n"
- "Odvez nebo volej 155. Zapiš čas uštknutí.",
+ "Zapiš čas uštknutí. Nenech ho chodit – nes nebo vez ho k lékaři.",
  "Nevysávej ránu, neřež do ní, nechlaď ledem.\n"
  "Nedávej škrtidlo.\n"
  "Nedávej alkohol.",
@@ -900,18 +899,18 @@ constexpr Topic kTopics[] = {
 // ── Teplo, chlad, voda ──────────────────────────────────────────────────────
 {"heatstroke", "Úpal, úžeh, přehřátí", C::kEnvironment, U::kEmergency,
  "upal úpal uzeh přehřátí horko teplo nevolnost na slunci",
- "Horká kůže, zmatenost, křeče, zvracení, bezvědomí, teplota přes 40 °C: 155.",
+ "Horká kůže, zmatenost, křeče, zvracení, bezvědomí, teplota přes 40 °C – úpal ohrožuje život.",
  "Přesuň ho do stínu nebo chladu, svleč přebytečné oblečení.\n"
  "Chlaď: vlhké chladné obklady, ovívání, chladná voda na kůži, studené obklady do podpaží a třísel.\n"
  "Je-li při vědomí, ať pije po doušcích (voda, rehydratační roztok).\n"
- "Bezvědomí: zotavovací poloha, 155.",
+ "Bezvědomí: zotavovací poloha a chlaď dál.",
  "Nedávej léky na horečku – nepomohou.\n"
  "Nedávej alkohol.",
  "ors", "", "dehydration sunburn"},
 
 {"hypothermia", "Podchlazení", C::kEnvironment, U::kEmergency,
  "podchlazeni podchlazení zima třes prochladl studený zmrzlý",
- "Ospalost, zmatenost, přestává se třást, pomalé dýchání: 155.",
+ "Ospalost, zmatenost, přestává se třást, pomalé dýchání – těžké podchlazení.",
  "Přesuň ho do tepla nebo do závětří, chraň před zemí (karimatka).\n"
  "Sundej mokré oblečení, zabal do suchých dek, čepice, alufólie.\n"
  "Je-li při vědomí: teplé sladké nápoje.\n"
@@ -936,7 +935,7 @@ constexpr Topic kTopics[] = {
 
 {"lightning", "Zásah bleskem", C::kEnvironment, U::kEmergency,
  "blesk zasah bleskem bourka uder blesku",
- "Vždy 155.",
+ "Bezvědomí, zástava dechu, popáleniny po zásahu.",
  "Zasažený člověk není pod proudem – můžeš se ho dotknout.\n"
  "Nedýchá: resuscitace hned, má velkou šanci.\n"
  "Ošetři popáleniny.\n"
@@ -945,12 +944,12 @@ constexpr Topic kTopics[] = {
 
 {"childbirth", "Náhlý porod", C::kEmergency, U::kEmergency,
  "porod rodi plodova voda tlaci dite se rodi miminko",
- "Vždy 155. Krvácení, dítě nedýchá, pupečník venku jako první, dítě nožkama napřed.",
- "Volej 155, operátor tě povede.\n"
- "Rodička ať leží nebo polosedí, pod ní čisté ručníky.\n"
+ "Silné krvácení po porodu, dítě nedýchá, pupečník venku jako první, dítě nožkama napřed.",
+  "Rodička ať leží nebo polosedí, pod ní čisté ručníky.\n"
  "Dítě netahej, jen podpírej hlavičku, jak vychází.\n"
  "Po narození dítě osuš, polož ho matce na břicho kůží na kůži, přikryj oba.\n"
- "Pupečník nestříhej, počkej na záchranku.\n"
+ "Pupečník nestříhej hned. Až přestane pulzovat (asi 10 minut), podvaž ho čistou tkaničkou ve dvou místech 10 a 15 cm od bříška a přestřihni mezi nimi čistými nůžkami.\n"
+ "Placenta vyjde sama do 30–60 minut – netahej. Pak masíruj dělohu přes břicho a přilož dítě k prsu: sníží to krvácení.\n"
  "Dítě nedýchá: otři ho, mnuj záda, pak 5 vdechů a resuscitace.",
  "Netahej za dítě ani za pupečník.",
  "", "", "cpr_child"},
@@ -960,15 +959,21 @@ constexpr Topic kTopics[] = {
 
 const char* const kPoisoningSteps =
     "Vypláchni ústa vodou a zbytky vyplivni.\n"
-    "Zavolej Toxikologické informační středisko: 224 919 293 nebo 224 915 402 (nonstop), při potížích s dýcháním, bezvědomí nebo křečích 155.\n"
-    "Vezmi s sebou rostlinu nebo houbu (i zbytky a odpad z čištění) a zapiš, kdy a kolik snědl.\n"
-    "Kdo jedl totéž, ať jde k lékaři také – i bez potíží.\n"
-    "Nevyvolávej zvracení a nedávej mléko ani olej. Živočišné uhlí jen na radu lékaře nebo TIS.\n"
-    "U hub mohou příznaky přijít až za 6–24 hodin a pak se na čas uleví – i tak hned do nemocnice.";
+    "Do hodiny od snědení pomůže živočišné uhlí: rozdrť tablety ve vodě, dospělý až 50 g, dítě 1 g na kg váhy.\n"
+    "Nevyvolávej zvracení a nedávej mléko ani olej.\n"
+    "Zapiš, co, kolik a kdy snědl; schovej zbytky rostliny nebo houby.\n"
+    "Kdo jedl totéž, hlídej i jeho. Sleduj dech a vědomí, při bezvědomí zotavovací poloha.\n"
+    "U hub mohou příznaky přijít až za 6–24 hodin a pak se na čas uleví – i tak co nejdřív k lékaři.";
 
-const char* const kEmergencyNumbers =
-    "155 Záchranná služba\n112 Tísňová linka EU (i bez SIM)\n150 Hasiči\n158 Policie\n"
-    "224 919 293 Toxikologické informační středisko";
+// The order in which to deal with an injured person when no help is coming.
+const char* const kPriorities =
+    "1. Bezpečí – tvoje i jeho.\n"
+    "2. Masivní krvácení – zastav ho hned (tlak, škrtidlo).\n"
+    "3. Dýchací cesty – zaklonit hlavu, vyčistit ústa, dušení.\n"
+    "4. Dýchání – nedýchá: resuscitace.\n"
+    "5. Oběh a šok – položit, zahřát, zastavit krvácení.\n"
+    "6. Podchlazení – izolace od země, suché oblečení, přikrýt.\n"
+    "7. Pak zbytek: hlava, zlomeniny, rány, bolest.";
 
 size_t TopicCount() { return sizeof(kTopics) / sizeof(kTopics[0]); }
 
