@@ -478,11 +478,16 @@
   /* Petdoku */
   .pboard { left: calc(16 * var(--u)); top: calc(178 * var(--u)); width: calc(536 * var(--u)); height: calc(800 * var(--u)); display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: calc(2 * var(--u)); padding: calc(4 * var(--u)); background: #05070A; border-radius: calc(14 * var(--u)); }
   .pboard i { background: var(--r); border-radius: calc(4 * var(--u)); position: relative; display: grid; place-items: center; }
-  .pboard i.x::before, .pboard i.x::after { content: ""; position: absolute; width: 34%; height: calc(3 * var(--u)); background: rgba(255, 255, 255, 0.4); border-radius: 2px; transform: rotate(45deg); }
-  .pboard i.x::after { transform: rotate(-45deg); }
-  .pboard i.p::before { content: ""; width: calc(40 * var(--u)); height: calc(40 * var(--u)); border-radius: 50%; border: calc(5 * var(--u)) solid #FF9F43; box-sizing: border-box; background: radial-gradient(circle, #FF9F43 0 calc(7 * var(--u)), transparent calc(8 * var(--u))); transform: scale(0); }
-  .petdoku.open .pboard i.p::before { animation: seal 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.4) forwards; animation-delay: calc(0.5s + var(--d, 0) * 0.18s); }
+  .pboard i.x::before, .pboard i.x::after { content: ""; position: absolute; width: 34%; height: calc(3 * var(--u)); background: rgba(255, 255, 255, 0.4); border-radius: 2px; transform: rotate(45deg); animation: xin 0.22s ease-out both; }
+  .pboard i.x::after { transform: rotate(-45deg); animation-name: xin2; }
+  @keyframes xin { from { opacity: 0; transform: rotate(45deg) scale(0.3); } }
+  @keyframes xin2 { from { opacity: 0; transform: rotate(-45deg) scale(0.3); } }
+  .pboard i.p::before { content: ""; width: calc(40 * var(--u)); height: calc(40 * var(--u)); border-radius: 50%; border: calc(5 * var(--u)) solid #FF9F43; box-sizing: border-box; background: radial-gradient(circle, #FF9F43 0 calc(7 * var(--u)), transparent calc(8 * var(--u))); transform: scale(0); animation: seal 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.4) forwards; }
+  .pboard i.p { box-shadow: inset 0 0 0 calc(3 * var(--u)) rgba(255, 159, 67, 0.55); transition: box-shadow 0.6s ease; }
+  .pboard i.p.settled { box-shadow: none; }
   @keyframes seal { to { transform: scale(1); } }
+  .pboard.solved { animation: solved 0.7s ease; }
+  @keyframes solved { 40% { box-shadow: 0 0 0 calc(4 * var(--u)) rgba(255, 159, 67, 0.7); } }
   .pctrl { left: calc(16 * var(--u)); right: calc(16 * var(--u)); bottom: calc(72 * var(--u)); height: calc(70 * var(--u)); display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(12 * var(--u)); }
   .pctrl span { border-radius: calc(20 * var(--u)); background: #1C2430; display: grid; place-items: center; font-size: calc(26 * var(--u)); font-weight: 650; color: #D7E1EE; }
 
@@ -1332,16 +1337,72 @@
   ];
   var palette = { A: "#25344A", B: "#2E3E2C", C: "#3A2D24", D: "#2B2F45", E: "#3B2A3D", F: "#22383A", G: "#3A3524", H: "#203041" };
   var solution = [1, 3, 5, 7, 0, 2, 4, 6];
-  var crosses = { "0,0": 1, "0,2": 1, "1,2": 1, "2,4": 1, "3,6": 1, "5,3": 1, "6,3": 1 };
   var board = document.getElementById("pboard");
+  var cells = [];
   for (var r = 0; r < 8; r++) {
     for (var c = 0; c < 8; c++) {
       var cell = document.createElement("i");
       cell.style.setProperty("--r", palette[regions[r][c]]);
-      if (solution[r] === c) { cell.className = "p"; cell.style.setProperty("--d", r); }
-      else if (crosses[r + "," + c]) cell.className = "x";
       board.appendChild(cell);
+      cells.push(cell);
     }
+  }
+  // Played like a person would: a seal goes down, then every cell it rules
+  // out — its row, its column, its region and its eight neighbours — gets an
+  // X, rippling out from the seal. About a second per seal, until solved.
+  var order = [3, 0, 5, 7, 1, 6, 2, 4];
+  var playTimers = [];
+  function clearPlay() {
+    playTimers.forEach(clearTimeout);
+    playTimers = [];
+  }
+  function later(fn, ms) { playTimers.push(setTimeout(fn, ms)); }
+  function resetBoard() {
+    cells.forEach(function (cell) { cell.className = ""; });
+    board.classList.remove("solved");
+  }
+  function placeSeal(r, at) {
+    var c = solution[r];
+    later(function () { cells[r * 8 + c].className = "p"; }, at);
+    later(function () { cells[r * 8 + c].classList.add("settled"); }, at + 900);
+    var marks = [];
+    for (var rr = 0; rr < 8; rr++) {
+      for (var cc = 0; cc < 8; cc++) {
+        if (rr === r && cc === c) continue;
+        var near = Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1;
+        if (rr === r || cc === c || near || regions[rr][cc] === regions[r][c]) {
+          marks.push({ i: rr * 8 + cc, d: Math.max(Math.abs(rr - r), Math.abs(cc - c)) });
+        }
+      }
+    }
+    marks.forEach(function (mark) {
+      later(function () {
+        var cell = cells[mark.i];
+        if (!cell.classList.contains("p") && !cell.classList.contains("x")) cell.className = "x";
+      }, at + 260 + mark.d * 55);
+    });
+  }
+  function playPetdoku() {
+    clearPlay();
+    resetBoard();
+    if (reduce) {
+      cells.forEach(function (cell) { cell.className = "x"; });
+      solution.forEach(function (c, r) { cells[r * 8 + c].className = "p settled"; });
+      return;
+    }
+    var step = 1000, start = 650;
+    order.forEach(function (r, k) { placeSeal(r, start + k * step); });
+    later(function () { board.classList.add("solved"); }, start + order.length * step + 200);
+  }
+  var petdokuLayer = board.closest("[data-layer]");
+  if (petdokuLayer && "MutationObserver" in window) {
+    var wasOpen = false;
+    new MutationObserver(function () {
+      var open = petdokuLayer.classList.contains("open");
+      if (open && !wasOpen) playPetdoku();
+      if (!open && wasOpen) clearPlay();
+      wasOpen = open;
+    }).observe(petdokuLayer, { attributes: true, attributeFilter: ["class"] });
   }
 
   function originFor(layer, name) {
