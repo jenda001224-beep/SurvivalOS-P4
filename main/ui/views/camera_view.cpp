@@ -61,6 +61,9 @@ struct CameraViewState {
   lv_obj_t* shutter_inner = nullptr;
   lv_obj_t* shutter_flash = nullptr;
   lv_obj_t* capture_toast = nullptr;
+  // One-shot timer hiding the toast; deleted with the view, because firing
+  // after the view is gone would touch a freed label.
+  lv_timer_t* toast_timer = nullptr;
   lv_obj_t* mode_button = nullptr;
   lv_obj_t* mode_label = nullptr;
   lv_obj_t* zoom_button = nullptr;
@@ -171,9 +174,12 @@ void SetShutterFlashOpacity(void* object, int32_t value) {
  * @param timer LVGL timer.
  */
 void HideCaptureToastCallback(lv_timer_t* timer) {
-  auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
-  if (label != nullptr) {
-    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+  auto* state = static_cast<CameraViewState*>(lv_timer_get_user_data(timer));
+  if (state != nullptr) {
+    state->toast_timer = nullptr;
+    if (state->capture_toast != nullptr) {
+      lv_obj_add_flag(state->capture_toast, LV_OBJ_FLAG_HIDDEN);
+    }
   }
   lv_timer_delete(timer);
 }
@@ -189,11 +195,12 @@ void ShowCaptureToast(CameraViewState* state, const char* text) {
   }
   lv_label_set_text(state->capture_toast, text);
   lv_obj_remove_flag(state->capture_toast, LV_OBJ_FLAG_HIDDEN);
-  lv_timer_t* timer = lv_timer_create(
-      HideCaptureToastCallback, kCaptureToastMs, state->capture_toast);
-  if (timer != nullptr) {
-    lv_timer_set_repeat_count(timer, 1);
+  if (state->toast_timer != nullptr) {
+    lv_timer_reset(state->toast_timer);
+    return;
   }
+  state->toast_timer =
+      lv_timer_create(HideCaptureToastCallback, kCaptureToastMs, state);
 }
 
 /**
@@ -788,6 +795,10 @@ void CameraViewDeleteEventCallback(lv_event_t* event) {
   if (state->recording_timer != nullptr) {
     lv_timer_delete(state->recording_timer);
     state->recording_timer = nullptr;
+  }
+  if (state->toast_timer != nullptr) {
+    lv_timer_delete(state->toast_timer);
+    state->toast_timer = nullptr;
   }
   if (state->refresh_timer != nullptr) {
     lv_timer_delete(state->refresh_timer);

@@ -19,6 +19,7 @@ constexpr AppEntry kHomeAppEntries[] = {
         .subtitle = "Record and play audio notes"},
     {.id = "files", .title = "Files", .subtitle = "File manager"},
     {.id = "radio", .title = "Radio", .subtitle = "LoRa module control"},
+    {.id = "nature", .title = "Nature", .subtitle = "Plants and fungi"},
     {.id = "petdoku", .title = "Petdoku", .subtitle = "Logic puzzle"},
     {.id = "cit", .title = "CIT", .subtitle = "Hardware self-test entry"},
 };

@@ -67,3 +67,11 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_LV_DEF_REFR_PERIOD=33
 # SurvivalOS: the setup assistant shows a QR code to the content page.
 CONFIG_LV_USE_QRCODE=y
+
+# SurvivalOS: power management, so Low Power Mode can lower the CPU clock
+# (esp_pm_configure in app/power_saving.cpp). Without light sleep: the DSI
+# panel keeps the chip awake anyway, and normal mode pins 360 MHz exactly as
+# before.
+CONFIG_PM_ENABLE=y
+# CONFIG_PM_DFS_INIT_AUTO is not set
+

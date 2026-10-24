@@ -20,6 +20,8 @@ struct SetupWizardResult {
   app::Edition edition = app::Edition::kFull;
   app::MapsChoice maps = app::MapsChoice::kNone;
   app::WikipediaChoice wikipedia = app::WikipediaChoice::kNone;
+  // The field guide of plants and fungi.
+  bool nature = false;
   // Open Settings > WLAN once the assistant has closed.
   bool open_wifi_settings = false;
 };
@@ -50,10 +52,11 @@ lv_obj_t* CreateSetupWizardView(
  *
  * @param maps Map choice.
  * @param wikipedia Wikipedia choice.
+ * @param nature Whether the field guide is wanted.
  * @param buffer Output.
  * @param size Output size.
  */
 void FormatSetupContentUrl(app::MapsChoice maps,
-    app::WikipediaChoice wikipedia, char* buffer, size_t size);
+    app::WikipediaChoice wikipedia, bool nature, char* buffer, size_t size);
 
 }  // namespace lilygo_box::ui

@@ -246,6 +246,10 @@
       "cpp_name": "kFolderOpen",
       "codepoint": 58056
     },
+    "Forest": {
+      "cpp_name": "kForest",
+      "codepoint": 60057
+    },
     "Home": {
       "cpp_name": "kHome",
       "codepoint": 59826

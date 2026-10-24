@@ -62,6 +62,30 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
     uint32_t max_height, JpegImage* image);
 
 /**
+ * @brief Decodes JPEG bytes into a square thumbnail that fills a box.
+ *
+ * The picture is scaled just far enough to cover the box and then cut to it
+ * from the middle, the way a phone gallery shows its grid.
+ *
+ * @param data JPEG bytes.
+ * @param size Number of bytes.
+ * @param box Side of the square in pixels.
+ * @param image Output; box x box unless the picture itself is smaller.
+ * @return true when the thumbnail was made.
+ */
+bool DecodeJpegThumbnail(const uint8_t* data, size_t size, uint32_t box,
+    JpegImage* image);
+
+/**
+ * @brief File version of DecodeJpegThumbnail().
+ * @param path Absolute path of the file.
+ * @param box Side of the square in pixels.
+ * @param image Output.
+ * @return true when the thumbnail was made.
+ */
+bool LoadJpegThumbnail(const char* path, uint32_t box, JpegImage* image);
+
+/**
  * @brief Encodes colour bars on the JPEG accelerator and decodes them again.
  *
  * Photos are encoded from the preview frame and shown through

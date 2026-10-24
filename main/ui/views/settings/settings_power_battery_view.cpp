@@ -294,6 +294,24 @@ void LowPowerSwitchChangedEventCallback(lv_event_t* event) {
   app::SetLowPowerModeEnabled(lv_obj_has_state(target, LV_STATE_CHECKED));
 }
 
+void SurvivalSwitchChangedEventCallback(lv_event_t* event) {
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+      target == nullptr) {
+    return;
+  }
+  app::SetSurvivalModeEnabled(lv_obj_has_state(target, LV_STATE_CHECKED));
+}
+
+void DeepSleepLockedSwitchChangedEventCallback(lv_event_t* event) {
+  lv_obj_t* target = lv_event_get_target_obj(event);
+  if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
+      target == nullptr) {
+    return;
+  }
+  app::SetDeepSleepWhenLocked(lv_obj_has_state(target, LV_STATE_CHECKED));
+}
+
 void LowPowerAutoSwitchChangedEventCallback(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_target_obj(event);
   if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED ||
@@ -702,6 +720,26 @@ bool BuildPowerBatteryContent(lv_obj_t* body, SettingsViewState* state) {
   if (!CreateSwitchRow(body, "Low Power Mode", y, state->config.width,
           low_power.enabled, LowPowerSwitchChangedEventCallback, state, false,
           &g_low_power_switch, low_power_summary)) {
+    return false;
+  }
+  y += kBasicSwitchRowWithSubtitleHeight;
+  if (!CreateSwitchRow(body, "Survival Mode", y, state->config.width,
+          low_power.survival, SurvivalSwitchChangedEventCallback, state, false,
+          nullptr,
+          "Only Nature, Maps and Radio. Deep sleep when the screen is off; "
+          "double-tap to wake")) {
+    return false;
+  }
+  y += kBasicSwitchRowWithSubtitleHeight;
+  char deep_summary[112] = {};
+  std::snprintf(deep_summary, sizeof(deep_summary),
+      "Deep sleep %u s after the screen goes off; double-tap to wake. "
+      "Not with music, recording or charger",
+      static_cast<unsigned int>(app::kLockedDeepSleepDelayMs / 1000));
+  if (!CreateSwitchRow(body, "Sleep when locked", y, state->config.width,
+          low_power.deep_sleep_when_locked,
+          DeepSleepLockedSwitchChangedEventCallback, state, false, nullptr,
+          deep_summary)) {
     return false;
   }
   y += kBasicSwitchRowWithSubtitleHeight;

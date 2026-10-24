@@ -143,6 +143,19 @@ class Application final {
   void ApplyLowPowerMode(bool enabled);
 
   /**
+   * @brief Survival Mode: powers everything down and starts deep sleep. A
+   *        double tap on the screen restarts the phone. Returns only when
+   *        the board could not be readied for it.
+   */
+  void EnterSurvivalDeepSleep();
+  /**
+   * @brief Whether something that deep sleep would cut off is running:
+   *        music, a recording, or the card sorter.
+   * @return true when the phone should stay awake.
+   */
+  bool IsBusyForDeepSleep();
+
+  /**
    * @brief 处理状态栏缓存发布的电池管理状态
    * @param status 最新有效电池状态
    */

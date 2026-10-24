@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 extern const lv_font_t lvgl_font_lineseedkr_rg_120;
+extern const lv_font_t lvgl_font_lineseed_th_150;
 extern const lv_font_t lvgl_font_lineseedkr_th_60;
 extern const lv_font_t lvgl_font_google_sans_flex_22;
 extern const lv_font_t lvgl_font_google_sans_flex_24;

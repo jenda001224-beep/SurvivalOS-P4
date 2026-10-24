@@ -58,6 +58,15 @@ class DeviceProvider {
   virtual bool SupportsPowerOffCharging() const { return false; }
 
   /**
+   * @brief SurvivalOS: readies the board for deep sleep with the screen off,
+   *        everything powered down except what wakes it (a double tap on the
+   *        touch panel). The caller then starts deep sleep; waking restarts.
+   * @return true when deep sleep may start; false leaves the phone as it was
+   *         as far as possible.
+   */
+  virtual bool PrepareSurvivalDeepSleep() { return false; }
+
+  /**
    * @brief 在完整设备初始化前处理持久关机状态下的启动原因
    * @param power_off_requested 上次是否已完成关机请求持久化
    * @return 本次启动应执行的动作

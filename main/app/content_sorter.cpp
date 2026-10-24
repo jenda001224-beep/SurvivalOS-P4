@@ -28,12 +28,12 @@ constexpr size_t kMaxPathLength = 300;
 constexpr int kMaxEntriesPerFolder = 4000;
 
 // Folders that already hold sorted content or belong to another system.
-constexpr const char* kSkippedFolders[] = {"wiki", "maps", "Music", "DCIM",
+constexpr const char* kSkippedFolders[] = {"wiki", "maps", "Music", "nature", "DCIM",
     "voice", "System Volume Information", "LOST.DIR", "Android", "lilygobox"};
 
 std::atomic<bool> g_sort_running{false};
 
-enum class Kind { kNone, kWiki, kMaps, kMusic };
+enum class Kind { kNone, kWiki, kMaps, kMusic, kNature };
 
 /**
  * @brief Whether a name ends in an extension, optionally followed by a
@@ -65,6 +65,9 @@ Kind Classify(const char* name, bool top_level) {
   if (HasExtension(name, ".zim", true)) {
     return Kind::kWiki;
   }
+  if (HasExtension(name, ".svnat", true)) {
+    return Kind::kNature;
+  }
   if (HasExtension(name, ".pmtiles", true) ||
       HasExtension(name, ".svtrails", false)) {
     return Kind::kMaps;
@@ -85,6 +88,8 @@ const char* FolderFor(Kind kind) {
       return "maps";
     case Kind::kMusic:
       return "Music";
+    case Kind::kNature:
+      return "nature";
     case Kind::kNone:
       break;
   }
@@ -223,5 +228,7 @@ void StartCardContentSort(const char* base_path) {
     g_sort_running.store(false);
   }
 }
+
+bool IsCardContentSortRunning() { return g_sort_running.load(); }
 
 }  // namespace lilygo_box::app

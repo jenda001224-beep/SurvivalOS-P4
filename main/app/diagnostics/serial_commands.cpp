@@ -132,9 +132,9 @@ void PrintStatus() {
       app::GetEdition() == app::Edition::kMini ? "mini" : "full",
       app::IsSetupCompleted() ? "done" : "pending");
   const app::LowPowerState low_power = app::GetLowPowerState();
-  std::printf("svos: low power %s auto=%d by_battery=%d wifi_back=%d\n",
+  std::printf("svos: low power %s auto=%d by_battery=%d wifi_back=%d survival=%d\n",
       low_power.enabled ? "on" : "off", low_power.auto_enable,
-      low_power.enabled_automatically, low_power.restore_wifi);
+      low_power.enabled_automatically, low_power.restore_wifi, low_power.survival);
 
   if (g_targets.battery != nullptr) {
     hal::BatteryManagementStatus battery;
@@ -318,6 +318,7 @@ void PrintHelp() {
       "svos:   svos camera on|off|wide|normal|fill  preview and its zoom\n"
       "svos:   svos jpeg              colour round trip through encoder+decoder\n"
       "svos:   svos lowpower on|off   switch Low Power Mode\n"
+      "svos:   svos survival on|off   switch Survival Mode (deep sleep when dark)\n"
       "svos:   svos setup             run the setup assistant at next start\n"
       "svos:   svos edition full|mini choose the edition\n"
       "svos:   svos sort              file SD card downloads into place\n");
@@ -369,6 +370,11 @@ void RunCommand(char* line) {
     app::SetLowPowerModeEnabled(std::strcmp(argument, "on") == 0);
     std::printf("svos: low power %s\n",
         app::IsLowPowerModeEnabled() ? "on" : "off");
+  } else if (std::strcmp(command, "survival") == 0 &&
+             (std::strcmp(argument, "on") == 0 ||
+                 std::strcmp(argument, "off") == 0)) {
+    app::SetSurvivalModeEnabled(std::strcmp(argument, "on") == 0);
+    std::printf("svos: survival %s\n", app::IsSurvivalModeEnabled() ? "on" : "off");
   } else if (std::strcmp(command, "setup") == 0) {
     app::ResetSetup();
     std::printf("svos: setup assistant runs at the next start\n");

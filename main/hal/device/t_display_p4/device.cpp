@@ -10,12 +10,16 @@
 #include <memory>
 
 #include "base/logger.h"
+#include "driver/gpio.h"
+#include "driver/rtc_io.h"
+#include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
+namespace gpio = lilygo_device_driver::t_display_p4::gpio;
 
 TDisplayP4Device::TDisplayP4Device()
     : driver_(lilygo_device_driver::TDisplayP4Driver::GetInstance()),
@@ -78,6 +82,60 @@ PowerOffAction TDisplayP4Device::RequestPowerOff() {
     return PowerOffAction::kFailed;
   }
   return PowerOffAction::kEnterDeepSleep;
+}
+
+bool TDisplayP4Device::PrepareSurvivalDeepSleep() {
+  // Called with the screen already asleep and the touch panel in gesture
+  // mode, which is what wakes the phone again: a double tap pulls the touch
+  // interrupt, the XL9535 passes it on to GPIO5, and GPIO5 is an LP pin that
+  // can end deep sleep. Everything else is switched off.
+  if (!PrepareForPowerOff()) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Survival sleep: stopping peripherals failed\n");
+    return false;
+  }
+  UnmountSdCard();  // also cuts the card's power
+  driver_.SetCameraPowerEnabled(false);
+  driver_.SetEsp32c6PowerEnabled(false);
+  driver_.SetEthernetPowerEnabled(false);
+  driver_.SetUsbHostPowerEnabled(false);
+  if (driver_.IsXl9535Ready()) {
+    driver_.chip().xl9535->GpioWrite(gpio::xl9535::kAudioPowerEn, 0);
+  }
+  if (!touch_gesture_wake_enabled_) {
+    touch_gesture_wake_enabled_ = SetTouchGestureWakeEnabled(true);
+  }
+  if (!touch_gesture_wake_enabled_) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Survival sleep: touch gesture wake is not available\n");
+    return false;
+  }
+  // The expander holds its interrupt low until its inputs are read; a stale
+  // one would end the sleep the moment it starts.
+  bool released = false;
+  for (int attempt = 0; attempt < 5 && !released; ++attempt) {
+    if (driver_.IsXl9535Ready()) {
+      driver_.chip().xl9535->ClearIrqFlag();
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    released = gpio_get_level(static_cast<gpio_num_t>(gpio::xl9535::kInt)) != 0;
+  }
+  if (!released) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Survival sleep: the wake line stays low\n");
+    return false;
+  }
+  const gpio_num_t wake_pin = static_cast<gpio_num_t>(gpio::xl9535::kInt);
+  if (esp_sleep_enable_ext1_wakeup_io(1ULL << wake_pin, ESP_EXT1_WAKEUP_ANY_LOW) != ESP_OK) {
+    return false;
+  }
+  rtc_gpio_pullup_en(wake_pin);
+  rtc_gpio_pulldown_dis(wake_pin);
+#if SOC_PM_SUPPORT_RTC_PERIPH_PD
+  // Keeps the pull-up on the wake line powered while asleep.
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+#endif
+  return true;
 }
 
 int TDisplayP4Device::ScreenWidth() const {

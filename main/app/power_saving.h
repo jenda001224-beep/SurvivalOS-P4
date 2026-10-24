@@ -20,6 +20,9 @@ inline constexpr uint32_t kLowPowerRefreshPeriodMs = 66;
 inline constexpr uint32_t kLowPowerTouchPeriodMs = 20;
 inline constexpr uint32_t kNormalRefreshPeriodMs = 33;
 inline constexpr uint32_t kNormalTouchPeriodMs = 10;
+// Survival Mode: 10 frames per second, touch every 30 ms.
+inline constexpr uint32_t kSurvivalRefreshPeriodMs = 100;
+inline constexpr uint32_t kSurvivalTouchPeriodMs = 30;
 // The automatic switch turns the mode on at this level when discharging, and
 // off again once charging has brought the battery back up.
 inline constexpr int kLowPowerAutoEnablePercent = 20;
@@ -35,7 +38,30 @@ struct LowPowerState {
   bool enabled_automatically = false;
   // Wi-Fi was on when the mode switched it off and comes back afterwards.
   bool restore_wifi = false;
+  // Survival Mode: Low Power Mode plus only the field guide, maps and radio,
+  // and deep sleep whenever the screen is off.
+  bool survival = false;
+  // In every mode: deep sleep a little while after the screen goes off, unless
+  // music plays, something records or the charger is in.
+  bool deep_sleep_when_locked = true;
 };
+
+// Apps left on the home screen in Survival Mode (Settings stays, so the mode
+// can be switched off again).
+inline constexpr const char* kSurvivalApps[] = {"nature", "maps", "radio", "settings"};
+// Seconds the screen stays off before the phone goes into deep sleep.
+inline constexpr uint32_t kSurvivalDeepSleepDelayMs = 4000;
+// Outside Survival Mode the phone waits a little longer, so switching the
+// screen straight back on does not cost a restart.
+inline constexpr uint32_t kLockedDeepSleepDelayMs = 10000;
+inline constexpr int kSurvivalLockTimeoutSeconds = 20;
+inline constexpr int kSurvivalBrightnessCapPercent = 25;
+// CPU clock per mode. Battery life comes before smoothness: Low Power Mode
+// halves the clock, Survival Mode quarters it (its screens are almost black and
+// barely move, so they still draw quickly enough).
+inline constexpr int kNormalCpuMhz = 360;
+inline constexpr int kLowPowerCpuMhz = 180;
+inline constexpr int kSurvivalCpuMhz = 90;
 
 /**
  * @brief Loads the saved state from NVS. Call once after NVS is up.
@@ -59,6 +85,56 @@ bool IsLowPowerModeEnabled();
  * @param enabled New state.
  */
 void SetLowPowerModeEnabled(bool enabled);
+
+/**
+ * @brief Whether Survival Mode is on.
+ * @return true when on.
+ */
+bool IsSurvivalModeEnabled();
+
+/**
+ * @brief Switches Survival Mode; it brings Low Power Mode's limits with it.
+ * @param enabled New state.
+ */
+void SetSurvivalModeEnabled(bool enabled);
+
+/**
+ * @brief Whether the phone goes into deep sleep once it is locked.
+ * @return true when on (Survival Mode always sleeps).
+ */
+bool IsDeepSleepWhenLockedEnabled();
+
+/**
+ * @brief Switches deep sleep on locking.
+ * @param enabled New setting.
+ */
+void SetDeepSleepWhenLocked(bool enabled);
+
+/**
+ * @brief Whether an app stays on the home screen in the current power mode.
+ * @param app_id Catalog id.
+ * @return true when shown.
+ */
+bool IsAppAllowedInPowerMode(const char* app_id);
+
+/**
+ * @brief Sets the CPU clock for the current mode through esp_pm.
+ * @return The clock now in force, in MHz, or 0 when it could not be set.
+ */
+int ApplyCpuClockForPowerMode();
+
+/**
+ * @brief Records, in memory that survives deep sleep, that the phone went to
+ *        sleep in Survival Mode.
+ */
+void MarkSurvivalSleep();
+
+/**
+ * @brief Whether this start is the phone waking from Survival Mode's deep
+ *        sleep. Reads and clears the mark.
+ * @return true for a survival wake.
+ */
+bool ConsumeSurvivalWake();
 
 /**
  * @brief Chooses whether the mode turns on by itself on a low battery.

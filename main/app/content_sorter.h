@@ -15,7 +15,8 @@ namespace lilygo_box::app {
  * The web page tells people to copy what they downloaded anywhere on the
  * card. This looks at the card's top folder and one level below it and moves
  * `.zim` (and split `.zimaa`...) files to /wiki, `.pmtiles` / `.svtrails` to
- * /maps, and loose `.mp3` files in the top folder to /Music. A move on the
+ * /maps, the field guide (`.svnat`) to /nature and loose `.mp3` files in the
+ * top folder to /Music. A move on the
  * same card only renames, so even a 50 GB file takes no time. Files already
  * in place, macOS "._" shadow files and anything with a name clash are left
  * alone.
@@ -30,5 +31,11 @@ size_t SortCardContent(const char* base_path);
  * @param base_path Mount point of the card; must stay valid (a constant).
  */
 void StartCardContentSort(const char* base_path);
+
+/**
+ * @brief Whether a sort started by StartCardContentSort() is still moving files.
+ * @return true while it runs.
+ */
+bool IsCardContentSortRunning();
 
 }  // namespace lilygo_box::app

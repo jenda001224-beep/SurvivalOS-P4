@@ -67,6 +67,7 @@ constexpr uint64_t kMapsCzechiaBytes = 1'703'518'651ULL;
 constexpr uint64_t kMapsWorldBytes = 3'700'000'000ULL;
 constexpr uint64_t kWikipediaCzechBytes = 3'430'401'584ULL;
 constexpr uint64_t kWikipediaEnglishBytes = 52'690'706'555ULL;
+constexpr uint64_t kNatureBytes = 800'000'000ULL;
 
 constexpr char kContentPageUrl[] =
     "https://jenda001224-beep.github.io/SurvivalOS-P4/";
@@ -149,6 +150,7 @@ struct WizardState {
   app::Edition edition = app::Edition::kFull;
   app::MapsChoice maps = app::MapsChoice::kCzechia;
   app::WikipediaChoice wikipedia = app::WikipediaChoice::kCzech;
+  bool nature = true;
   bool open_wifi_settings = false;
   bool finishing = false;
   // Step to build once the current event has finished; the button that asked
@@ -168,6 +170,7 @@ struct WizardState {
   lv_obj_t* primary_label = nullptr;
   lv_obj_t* map_rows[3] = {};
   lv_obj_t* wikipedia_rows[4] = {};
+  lv_obj_t* nature_rows[2] = {};
   lv_obj_t* total_label = nullptr;
   lv_obj_t* edition_cards[2] = {};
   // What the live parts show now, so the timer only touches them on change.
@@ -269,7 +272,7 @@ uint64_t WikipediaBytes(app::WikipediaChoice wikipedia) {
 
 bool HasContent(const WizardState* state) {
   return state->maps != app::MapsChoice::kNone ||
-      state->wikipedia != app::WikipediaChoice::kNone;
+      state->wikipedia != app::WikipediaChoice::kNone || state->nature;
 }
 
 // The order of the steps for the chosen edition.
@@ -337,6 +340,7 @@ void Finish(WizardState* state) {
   if (state->edition == app::Edition::kFull) {
     result.maps = state->maps;
     result.wikipedia = state->wikipedia;
+    result.nature = state->nature;
   }
   result.open_wifi_settings = state->open_wifi_settings;
   // A copy: the callback deletes this view, and with it the state.
@@ -779,10 +783,16 @@ void UpdateContentStep(WizardState* state) {
           state->wikipedia_rows[i], static_cast<int>(state->wikipedia) == i);
     }
   }
+  for (int i = 0; i < 2; ++i) {
+    if (state->nature_rows[i] != nullptr) {
+      StyleSelectable(state->nature_rows[i], state->nature == (i == 1));
+    }
+  }
   if (state->total_label == nullptr) {
     return;
   }
-  const uint64_t total = MapsBytes(state->maps) + WikipediaBytes(state->wikipedia);
+  const uint64_t total = MapsBytes(state->maps) + WikipediaBytes(state->wikipedia) +
+      (state->nature ? kNatureBytes : 0);
   char total_text[24] = {};
   FormatGigabytes(total, total_text, sizeof(total_text));
   char text[160] = {};
@@ -823,6 +833,17 @@ void MapRowClicked(lv_event_t* event) {
       state->maps = static_cast<app::MapsChoice>(i);
     }
   }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  UpdateContentStep(state);
+}
+
+void NatureRowClicked(lv_event_t* event) {
+  auto* state = static_cast<WizardState*>(lv_event_get_user_data(event));
+  lv_obj_t* row = lv_event_get_current_target_obj(event);
+  if (state == nullptr || row == nullptr) {
+    return;
+  }
+  state->nature = row == state->nature_rows[1];
   PlayUiHapticEffect(HapticEffect::kSelection);
   UpdateContentStep(state);
 }
@@ -913,6 +934,14 @@ void BuildContent(WizardState* state) {
         wikipedia_titles[i], wikipedia_sizes[i], WikipediaRowClicked);
     y += kOptionRowHeight + kOptionRowGap;
   }
+  y += 22;
+  CreateSectionTitle(body, "FIELD GUIDE", y);
+  y += 40;
+  state->nature_rows[0] = CreateOptionRow(state, body, y, "No field guide", 0,
+      NatureRowClicked);
+  y += kOptionRowHeight + kOptionRowGap;
+  state->nature_rows[1] = CreateOptionRow(state, body, y,
+      "Plants and fungi of Czechia", kNatureBytes, NatureRowClicked);
   CreateButton(state, "Continue", true, PrimaryClicked);
   UpdateContentStep(state);
 }
@@ -929,7 +958,7 @@ void BuildFiles(WizardState* state) {
   }
 
   char url[160] = {};
-  FormatSetupContentUrl(state->maps, state->wikipedia, url, sizeof(url));
+  FormatSetupContentUrl(state->maps, state->wikipedia, state->nature, url, sizeof(url));
   // The QR code sits on a white tile; scanners want the light quiet zone.
   lv_obj_t* tile = lv_obj_create(body);
   int y = 0;
@@ -1137,7 +1166,7 @@ void WizardDeleteCallback(lv_event_t* event) {
 }  // namespace
 
 void FormatSetupContentUrl(app::MapsChoice maps,
-    app::WikipediaChoice wikipedia, char* buffer, size_t size) {
+    app::WikipediaChoice wikipedia, bool nature, char* buffer, size_t size) {
   if (buffer == nullptr || size == 0) {
     return;
   }
@@ -1148,8 +1177,8 @@ void FormatSetupContentUrl(app::MapsChoice maps,
       : wikipedia == app::WikipediaChoice::kEnglish                       ? "en"
       : wikipedia == app::WikipediaChoice::kBoth ? "cs,en"
                                                  : "none";
-  std::snprintf(buffer, size, "%s#content?maps=%s&wiki=%s", kContentPageUrl,
-      maps_value, wikipedia_value);
+  std::snprintf(buffer, size, "%s#content?maps=%s&wiki=%s&nature=%d",
+      kContentPageUrl, maps_value, wikipedia_value, nature ? 1 : 0);
 }
 
 lv_obj_t* CreateSetupWizardView(

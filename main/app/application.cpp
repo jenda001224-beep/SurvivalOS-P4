@@ -19,6 +19,7 @@
 #include "app/firmware_update_manager.h"
 #include "app/network_monitor.h"
 #include "app/power_saving.h"
+#include "app/content_sorter.h"
 #include "app/restart_loop_guard.h"
 #include "app/storage/battery_storage.h"
 #include "app/storage/display_storage.h"
@@ -701,14 +702,17 @@ bool Application::Init() {
       primary_radio_chip);
   app::InitLowPowerStorage();
   app::InitEditionStorage();
+  app::ApplyCpuClockForPowerMode();
   app::SetLowPowerModeListener(
       [this](bool enabled) { ApplyLowPowerMode(enabled); });
   if (app::IsLowPowerModeEnabled()) {
     // Brightness and auto-lock follow through LoadDisplayPreferencesOrDefault
     // and Wi-Fi was switched off when the mode began; only the frame rate has
     // to be set again after a restart.
+    const bool survival = app::IsSurvivalModeEnabled();
     lvgl_port_.SetFramePeriods(
-        app::kLowPowerRefreshPeriodMs, app::kLowPowerTouchPeriodMs);
+        survival ? app::kSurvivalRefreshPeriodMs : app::kLowPowerRefreshPeriodMs,
+        survival ? app::kSurvivalTouchPeriodMs : app::kLowPowerTouchPeriodMs);
   }
   if (!app::NetworkMonitor::Instance().Initialize(
           device_provider_context_.wifi)) {
@@ -789,16 +793,27 @@ bool Application::Init() {
         "Initialize OTG reverse-power policy failed\n");
   }
 
-  const bool startup_result = StartStartupScreen();
-  if (!startup_result) {
-    LogMessage(
-        LogLevel::kWarning, __FILE__, __LINE__, "StartStartupScreen failed\n");
+  // SurvivalOS: waking from Survival Mode's deep sleep goes straight to the
+  // lock screen, the way a phone lights up, instead of the boot animation.
+  const bool survival_wake = app::ConsumeSurvivalWake();
+  if (survival_wake) {
+    LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+        "Woken from Survival Mode deep sleep\n");
+    lvgl_port_.Lock();
+    ui_manager_.ShowLockScreen();
+    lvgl_port_.Unlock();
+  } else {
+    const bool startup_result = StartStartupScreen();
+    if (!startup_result) {
+      LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+          "StartStartupScreen failed\n");
+    }
   }
   StartScreenBacklight(display_preferences.brightness_percent);
 
   // SurvivalOS: the setup assistant has its own flag, so a phone flashed with
   // "keep settings" still sees it once.
-  if (!app::IsSetupCompleted()) {
+  if (!app::IsSetupCompleted() && !survival_wake) {
     lvgl_port_.Lock();
     const bool welcome_result = ui_manager_.ShowFirstBootWelcome([]() {
       app::MarkFirstBootCompleted();
@@ -1114,10 +1129,69 @@ void Application::HandleBatteryManagementStatusUpdate(
   }
 }
 
+bool Application::IsBusyForDeepSleep() {
+  hal::AudioProvider* audio = device_provider_context_.audio;
+  if (audio != nullptr) {
+    hal::AudioFilePlaybackStatus playback;
+    if (audio->ReadAudioFileStatus(&playback) &&
+        playback.state == hal::AudioFilePlaybackState::kPlaying) {
+      return true;
+    }
+    hal::AudioRecordingStatus recording;
+    if (audio->ReadAudioRecordingStatus(&recording) &&
+        recording.state == hal::AudioRecordingState::kRecording) {
+      return true;
+    }
+  }
+  hal::CameraProvider* camera = device_provider_context_.camera;
+  if (camera != nullptr) {
+    hal::VideoRecordingStatus video;
+    if (camera->ReadVideoRecordingStatus(&video) &&
+        video.state == hal::VideoRecordingState::kRecording) {
+      return true;
+    }
+  }
+  return app::IsCardContentSortRunning();
+}
+
+void Application::EnterSurvivalDeepSleep() {
+  hal::DeviceProvider* device = device_provider_context_.device;
+  bool expected = false;
+  if (device == nullptr ||
+      !power_action_in_progress_.compare_exchange_strong(expected, true)) {
+    return;
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Locked: deep sleep until a double tap\n");
+  // Settings waiting to be written must reach flash first: deep sleep ends
+  // in a restart.
+  if (!app::FreezeStorageUpdatesForShutdown() ||
+      !app::FlushPendingStorageBeforeShutdown()) {
+    app::ResumeStorageUpdatesAfterShutdownFailure();
+    power_action_in_progress_.store(false);
+    return;
+  }
+  if (!device->PrepareSurvivalDeepSleep()) {
+    app::ResumeStorageUpdatesAfterShutdownFailure();
+    power_action_in_progress_.store(false);
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Survival Mode: deep sleep not possible, staying in screen sleep\n");
+    return;
+  }
+  app::MarkSurvivalSleep();
+  esp_deep_sleep_start();
+}
+
 void Application::ApplyLowPowerMode(bool enabled) {
+  app::ApplyCpuClockForPowerMode();
+  const bool survival = app::IsSurvivalModeEnabled();
   lvgl_port_.SetFramePeriods(
-      enabled ? app::kLowPowerRefreshPeriodMs : app::kNormalRefreshPeriodMs,
-      enabled ? app::kLowPowerTouchPeriodMs : app::kNormalTouchPeriodMs);
+      survival  ? app::kSurvivalRefreshPeriodMs
+      : enabled ? app::kLowPowerRefreshPeriodMs
+                : app::kNormalRefreshPeriodMs,
+      survival  ? app::kSurvivalTouchPeriodMs
+      : enabled ? app::kLowPowerTouchPeriodMs
+                : app::kNormalTouchPeriodMs);
 
   // The Wi-Fi chip draws tens of milliamps just by being powered, so the mode
   // cuts its power and brings it back afterwards if it was in use.
@@ -1773,6 +1847,23 @@ void Application::RunScreenLockTask() {
         last_sleep_touch_wake_refresh_ms = now_ms - kSleepingTouchWakeRefreshMs;
         screen_wake_input_armed = false;
       }
+    }
+    // SurvivalOS: a dark screen alone still leaves the processor, the touch
+    // scanning and the panel driver running, so a little while after the
+    // screen goes off the whole phone goes into deep sleep and a double tap
+    // restarts it straight into the lock screen. Not on the charger, where
+    // the battery does not matter and the charging screen should keep
+    // working, and not while music plays or something records.
+    if (screen_lock_state == ScreenLockState::kAsleep &&
+        app::IsDeepSleepWhenLockedEnabled() && !battery_charging_.load() &&
+        now_ms - screen_sleep_started_ms >=
+            (app::IsSurvivalModeEnabled() ? app::kSurvivalDeepSleepDelayMs
+                                          : app::kLockedDeepSleepDelayMs)) {
+      if (!IsBusyForDeepSleep()) {
+        EnterSurvivalDeepSleep();
+      }
+      // Still here: busy, or the board could not be readied. Try again later.
+      screen_sleep_started_ms = now_ms;
     }
     const bool recovery_required =
         lvgl_port_.IsDisplayFlushPaused() &&

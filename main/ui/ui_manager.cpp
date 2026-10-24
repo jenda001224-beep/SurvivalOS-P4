@@ -41,6 +41,7 @@
 #include "ui/views/camera_view.h"
 #include "ui/views/first_boot_welcome_view.h"
 #include "ui/views/setup_wizard_view.h"
+#include "ui/theme/survival_palette.h"
 #include "ui/views/lock_screen_view.h"
 #include "ui/views/power_menu_view.h"
 #include "ui/views/settings_view.h"
@@ -901,6 +902,18 @@ IconStyle GetIconStyle(const app::AppEntry& app_entry) {
     };
   }
 
+  if (IsId(app_entry.id, "nature")) {
+    return {
+        .symbol = icon::kForest,
+        .image = nullptr,
+        .shell_color = 0x3F6B2A,
+        .surface_color = 0xA8D08D,
+        .pressed_shell_color = 0x30521F,
+        .image_offset_x = 0,
+        .image_offset_y = 0,
+    };
+  }
+
   if (IsId(app_entry.id, "petdoku")) {
     return {
         .symbol = icon::kVideogameAsset,
@@ -1259,7 +1272,9 @@ bool UiManager::ShowPowerOffChargingScreen(
 }
 
 void UiManager::SetStatusBarTextColor(uint32_t color) {
-  status_bar_.SetTextColor(lv_color_hex(color));
+  // SurvivalOS: Survival Mode keeps the status bar dim red over every screen.
+  status_bar_.SetTextColor(
+      lv_color_hex(survival_look::Active() ? survival_look::kDim : color));
 }
 
 void UiManager::SetStatusBarVisible(bool visible) {
@@ -2163,6 +2178,14 @@ lv_obj_t* UiManager::CreateClockGroup(lv_obj_t* parent) {
 }
 
 void UiManager::RefreshSystemStatus() {
+  // SurvivalOS: Survival Mode can be switched from any task (Settings, the
+  // serial console); the launcher follows here, on the LVGL task.
+  const bool survival = app::IsSurvivalModeEnabled();
+  if (survival != launcher_shows_survival_) {
+    launcher_shows_survival_ = survival;
+    ApplyEditionToLauncher();
+    ApplySurvivalLook(survival);
+  }
   system_status_cache_.RefreshSystemStatus();
   if (system_status_cache_.rtc_status_valid()) {
     UpdateClockLabels(system_status_cache_.rtc_status());
@@ -2333,7 +2356,8 @@ void UiManager::LayoutEditionIcons(
     if (cell == nullptr || contexts[i].app_entry == nullptr) {
       continue;
     }
-    if (!app::IsAppInEdition(contexts[i].app_entry->id)) {
+    if (!app::IsAppInEdition(contexts[i].app_entry->id) ||
+        !app::IsAppAllowedInPowerMode(contexts[i].app_entry->id)) {
       lv_obj_add_flag(cell, LV_OBJ_FLAG_HIDDEN);
       continue;
     }
@@ -2352,6 +2376,90 @@ void UiManager::ApplyEditionToLauncher() {
       button_contexts_.data(), button_context_count_, grid_icon_layout_);
   LayoutEditionIcons(dock_button_contexts_.data(), dock_button_context_count_,
       dock_icon_layout_);
+}
+
+void UiManager::StyleIconForSurvival(
+    AppButtonContext* context, bool on, lv_opa_t glow_opacity) {
+  if (context == nullptr || context->icon_button == nullptr ||
+      context->app_entry == nullptr) {
+    return;
+  }
+  const IconStyle style = GetIconStyle(*context->app_entry);
+  lv_obj_t* button = context->icon_button;
+  if (on) {
+    lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_opa(button, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(button, LV_OPA_TRANSP, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(button, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(button, lv_color_hex(survival_look::kFaint), LV_PART_MAIN);
+  } else {
+    SetInnerImageShellStyle(button, style);
+    SetIconGlowStyle(button, glow_opacity);
+    lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+  }
+  lv_obj_t* glyph_parent = button;
+  if (context->icon_surface != nullptr) {
+    lv_obj_set_style_bg_opa(context->icon_surface, on ? LV_OPA_TRANSP : LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(context->icon_surface, on ? LV_OPA_TRANSP : LV_OPA_COVER, LV_STATE_PRESSED);
+    glyph_parent = context->icon_surface;
+  }
+  for (uint32_t i = 0; i < lv_obj_get_child_count(glyph_parent); ++i) {
+    lv_obj_t* child = lv_obj_get_child(glyph_parent, static_cast<int32_t>(i));
+    if (lv_obj_check_type(child, &lv_image_class)) {
+      lv_obj_set_style_image_recolor(child, lv_color_hex(survival_look::kText), LV_PART_MAIN);
+      lv_obj_set_style_image_recolor_opa(child, on ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
+    } else if (lv_obj_check_type(child, &lv_label_class)) {
+      lv_obj_set_style_text_color(child,
+          lv_color_hex(on ? survival_look::kText : theme::FixedColors().home_content),
+          LV_PART_MAIN);
+    }
+  }
+  lv_obj_t* cell = lv_obj_get_parent(button);
+  for (uint32_t i = 0; cell != nullptr && i < lv_obj_get_child_count(cell); ++i) {
+    lv_obj_t* child = lv_obj_get_child(cell, static_cast<int32_t>(i));
+    if (child != button && lv_obj_check_type(child, &lv_label_class)) {
+      lv_obj_set_style_text_color(child,
+          lv_color_hex(on ? survival_look::kDim : theme::FixedColors().home_content),
+          LV_PART_MAIN);
+    }
+  }
+}
+
+void UiManager::ApplySurvivalLook(bool on) {
+  if (launcher_wallpaper_.background != nullptr) {
+    if (on) {
+      lv_obj_set_style_bg_color(launcher_wallpaper_.background,
+          lv_color_hex(survival_look::kBlack), LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(launcher_wallpaper_.background, LV_OPA_COVER, LV_PART_MAIN);
+    }
+    for (lv_obj_t* layer : launcher_wallpaper_.layers) {
+      if (layer == nullptr) {
+        continue;
+      }
+      if (on) {
+        lv_obj_add_flag(layer, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_remove_flag(layer, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+    if (!on) {
+      ApplyWallpaperTheme(launcher_wallpaper_);
+    }
+  }
+  for (size_t i = 0; i < button_context_count_; ++i) {
+    StyleIconForSurvival(&button_contexts_[i], on, kAppIconGlowOpacity);
+  }
+  for (size_t i = 0; i < dock_button_context_count_; ++i) {
+    StyleIconForSurvival(&dock_button_contexts_[i], on, kDockIconGlowOpacity);
+    if (i == 0 && dock_button_contexts_[i].cell != nullptr) {
+      lv_obj_t* dock = lv_obj_get_parent(dock_button_contexts_[i].cell);
+      if (dock != nullptr) {
+        lv_obj_set_style_bg_opa(dock, on ? LV_OPA_TRANSP : 28, LV_PART_MAIN);
+      }
+    }
+  }
+  SetStatusBarTextColor(theme::FixedColors().status_bar_text);
 }
 
 void UiManager::OpenWifiSettings() {

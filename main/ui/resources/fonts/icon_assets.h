@@ -30,6 +30,7 @@ inline constexpr char kEnergySavingsLeaf[] = "\xEE\xB0\x9A";
 inline constexpr char kFile[] = "\xEE\x99\xAD";
 inline constexpr char kFolder[] = "\xEE\x8B\x87";
 inline constexpr char kFolderOpen[] = "\xEE\x8B\x88";
+inline constexpr char kForest[] = "\xEE\xAA\x99";
 inline constexpr char kHome[] = "\xEE\xA6\xB2";
 inline constexpr char kImage[] = "\xEE\x8F\xB4";
 inline constexpr char kInfo[] = "\xEE\xA2\x8E";

@@ -5,11 +5,16 @@
 #include "app/power_saving.h"
 
 #include <algorithm>
+#include <cstring>
 #include <mutex>
 #include <utility>
 
 #include "base/logger.h"
+#include "esp_attr.h"
+#include "esp_pm.h"
+#include "esp_sleep.h"
 #include "nvs.h"
+#include "sdkconfig.h"
 
 namespace lilygo_box::app {
 namespace {
@@ -21,6 +26,13 @@ constexpr uint8_t kEnabledBit = 1U << 0;
 constexpr uint8_t kAutoEnableBit = 1U << 1;
 constexpr uint8_t kAutomaticBit = 1U << 2;
 constexpr uint8_t kRestoreWifiBit = 1U << 3;
+constexpr uint8_t kSurvivalBit = 1U << 4;
+// Inverted so that phones with a saved state from before default to on.
+constexpr uint8_t kNoDeepSleepWhenLockedBit = 1U << 5;
+constexpr uint32_t kSurvivalSleepMagic = 0x53565356;  // "SVSV"
+
+// Survives deep sleep (not a power cut), so the next start knows why it began.
+RTC_NOINIT_ATTR uint32_t g_survival_sleep_mark;
 // Set on every saved value, so that a missing key (a fresh install) and a
 // saved "everything off" can be told apart.
 constexpr uint8_t kStoredBit = 1U << 7;
@@ -40,7 +52,9 @@ uint8_t Encode(const LowPowerState& state) {
   return kStoredBit | (state.enabled ? kEnabledBit : 0) |
       (state.auto_enable ? kAutoEnableBit : 0) |
       (state.enabled_automatically ? kAutomaticBit : 0) |
-      (state.restore_wifi ? kRestoreWifiBit : 0);
+      (state.restore_wifi ? kRestoreWifiBit : 0) |
+      (state.survival ? kSurvivalBit : 0) |
+      (state.deep_sleep_when_locked ? 0 : kNoDeepSleepWhenLockedBit);
 }
 
 void Save(const LowPowerState& state) {
@@ -72,8 +86,10 @@ void Modify(Change change) {
     if (Encode(before) == Encode(g_state)) {
       return;
     }
-    mode_changed = before.enabled != g_state.enabled;
-    enabled = g_state.enabled;
+    mode_changed = (before.enabled || before.survival) !=
+            (g_state.enabled || g_state.survival) ||
+        before.survival != g_state.survival;
+    enabled = g_state.enabled || g_state.survival;
     saved = g_state;
     listener = g_listener;
   }
@@ -109,6 +125,8 @@ void InitLowPowerStorage() {
   g_state.auto_enable = (stored & kAutoEnableBit) != 0;
   g_state.enabled_automatically = (stored & kAutomaticBit) != 0;
   g_state.restore_wifi = (stored & kRestoreWifiBit) != 0;
+  g_state.survival = (stored & kSurvivalBit) != 0;
+  g_state.deep_sleep_when_locked = (stored & kNoDeepSleepWhenLockedBit) == 0;
 }
 
 LowPowerState GetLowPowerState() {
@@ -118,7 +136,60 @@ LowPowerState GetLowPowerState() {
 
 bool IsLowPowerModeEnabled() {
   std::lock_guard<std::mutex> guard(g_mutex);
-  return g_state.enabled;
+  return g_state.enabled || g_state.survival;
+}
+
+bool IsSurvivalModeEnabled() {
+  std::lock_guard<std::mutex> guard(g_mutex);
+  return g_state.survival;
+}
+
+void SetSurvivalModeEnabled(bool enabled) {
+  Modify([enabled](LowPowerState* state) { state->survival = enabled; });
+}
+
+bool IsAppAllowedInPowerMode(const char* app_id) {
+  if (app_id == nullptr || !IsSurvivalModeEnabled()) {
+    return true;
+  }
+  for (const char* allowed : kSurvivalApps) {
+    if (std::strcmp(app_id, allowed) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int ApplyCpuClockForPowerMode() {
+#if CONFIG_PM_ENABLE
+  const int mhz = IsSurvivalModeEnabled() ? kSurvivalCpuMhz
+      : IsLowPowerModeEnabled()           ? kLowPowerCpuMhz
+                                          : kNormalCpuMhz;
+  // Minimum equal to maximum: one fixed clock per mode, no switching back and
+  // forth. The display's PM lock asks for the maximum anyway.
+  esp_pm_config_t config = {};
+  config.max_freq_mhz = mhz;
+  config.min_freq_mhz = mhz;
+  config.light_sleep_enable = false;
+  const esp_err_t error = esp_pm_configure(&config);
+  if (error != ESP_OK) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Setting the CPU to %d MHz failed: %s\n", mhz, esp_err_to_name(error));
+    return 0;
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "CPU clock %d MHz\n", mhz);
+  return mhz;
+#else
+  return 0;
+#endif
+}
+
+void MarkSurvivalSleep() { g_survival_sleep_mark = kSurvivalSleepMagic; }
+
+bool ConsumeSurvivalWake() {
+  const bool marked = g_survival_sleep_mark == kSurvivalSleepMagic;
+  g_survival_sleep_mark = 0;
+  return marked && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1;
 }
 
 void SetLowPowerModeEnabled(bool enabled) {
@@ -136,6 +207,17 @@ void SetLowPowerModeEnabled(bool enabled) {
 
 void SetLowPowerAutoEnable(bool enabled) {
   Modify([enabled](LowPowerState* state) { state->auto_enable = enabled; });
+}
+
+bool IsDeepSleepWhenLockedEnabled() {
+  std::lock_guard<std::mutex> guard(g_mutex);
+  return g_state.survival || g_state.deep_sleep_when_locked;
+}
+
+void SetDeepSleepWhenLocked(bool enabled) {
+  Modify([enabled](LowPowerState* state) {
+    state->deep_sleep_when_locked = enabled;
+  });
 }
 
 void SetLowPowerWifiRestore(bool restore) {
@@ -178,6 +260,9 @@ void SetLowPowerModeListener(std::function<void(bool enabled)> listener) {
 }
 
 int LimitBrightnessForLowPower(int percent) {
+  if (IsSurvivalModeEnabled()) {
+    return std::min(percent, kSurvivalBrightnessCapPercent);
+  }
   return IsLowPowerModeEnabled()
       ? std::min(percent, kLowPowerBrightnessCapPercent)
       : percent;
@@ -188,11 +273,13 @@ DisplayPreferences LimitDisplayPreferencesForLowPower(
   if (!IsLowPowerModeEnabled()) {
     return preferences;
   }
-  preferences.brightness_percent =
-      std::min(preferences.brightness_percent, kLowPowerBrightnessCapPercent);
+  const bool survival = IsSurvivalModeEnabled();
+  preferences.brightness_percent = std::min(preferences.brightness_percent,
+      survival ? kSurvivalBrightnessCapPercent : kLowPowerBrightnessCapPercent);
+  const int lock_limit = survival ? kSurvivalLockTimeoutSeconds : kLowPowerLockTimeoutSeconds;
   if (preferences.lock_timeout_seconds == kDisplayLockTimeoutDisabledSeconds ||
-      preferences.lock_timeout_seconds > kLowPowerLockTimeoutSeconds) {
-    preferences.lock_timeout_seconds = kLowPowerLockTimeoutSeconds;
+      preferences.lock_timeout_seconds > lock_limit) {
+    preferences.lock_timeout_seconds = lock_limit;
   }
   return preferences;
 }

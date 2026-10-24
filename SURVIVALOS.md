@@ -28,8 +28,25 @@ Flashing is reversible: the web flasher can also write LILYGO's factory image ba
   second with touch read every 20 ms, auto-lock after 30 s. It turns on by itself at
   20 % on battery and off again once charging reaches 80 %. The battery icon turns
   yellow while it is on.
+- Survival Mode (Settings > Power Saving & Battery, `svos survival on`): Low
+  Power Mode's limits (screen max 25 %, auto-lock 20 s) plus only Nature, Maps
+  and Radio on the home screen, and four seconds after the screen goes dark the
+  whole phone enters deep sleep. The touch panel stays in gesture mode; a double
+  tap pulls its interrupt, the XL9535 passes it to GPIO5 (an LP pin, ext1 wake)
+  and the phone restarts straight into the lock screen
+  (`TDisplayP4Device::PrepareSurvivalDeepSleep`, `Application::EnterSurvivalDeepSleep`).
+- Nature, a field guide to every plant and fungus recorded in Czechia (about
+  5,600 species): Czech, Latin and English names, up to three photos each, what
+  it is good for (edible, medicinal, poisonous, deadly...), habitats, the months
+  it is seen and the Czech Wikipedia text. Search ignores diacritics; filters by
+  group, use, colour, habitat and season. Data: one file, `nature.svnat`, built by
+  `tools/prepare_nature.py` from iNaturalist and Wikipedia (photos keep their
+  CC licences and credits, shown under each photo). `main/ui/views/nature_view.*`,
+  `main/survival/nature_pack.*`; `hosttest/nature/`.
+- The UI text fonts (22-36 px) now carry Latin-1 and Latin Extended-A, so Czech
+  (and most European) text shows its accents, in Wikipedia too.
 - Downloads copied anywhere on the card (top folder or one level below) are moved
-  to `/wiki`, `/maps` and `/Music` when the card is mounted
+  to `/wiki`, `/maps`, `/nature` and `/Music` when the card is mounted
   (`main/app/content_sorter.*`; `hosttest/sorter/`).
 - Haptic feedback for system gestures and app launches.
 - Offline Wikipedia reader (ZIM files, zstd, title search). Files on the SD card are

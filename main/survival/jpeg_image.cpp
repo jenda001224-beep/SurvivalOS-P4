@@ -291,6 +291,70 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
   return true;
 }
 
+bool DecodeJpegThumbnail(const uint8_t* data, size_t size, uint32_t box,
+    JpegImage* image) {
+  if (data == nullptr || size == 0 || image == nullptr || box == 0) {
+    return false;
+  }
+  *image = JpegImage();
+  jpeg_decode_picture_info_t info = {};
+  if (jpeg_decoder_get_info(data, static_cast<uint32_t>(size), &info) != ESP_OK ||
+      info.width == 0 || info.height == 0) {
+    return false;
+  }
+  // Smallest scaler step that still covers the box; the extra pixel keeps the
+  // float maths from rounding down one step inside DecodeJpegBuffer().
+  const float needed = static_cast<float>(box) /
+      static_cast<float>(std::min(info.width, info.height));
+  const float scale = std::min(1.0F,
+      std::ceil(needed / kScaleStep - 1e-4F) * kScaleStep);
+  const uint32_t want_width = static_cast<uint32_t>(info.width * scale) + 1;
+  const uint32_t want_height = static_cast<uint32_t>(info.height * scale) + 1;
+  JpegImage scaled;
+  if (!DecodeJpegBuffer(data, size, want_width, want_height, &scaled)) {
+    return false;
+  }
+  const uint32_t out_width = std::min(box, scaled.width);
+  const uint32_t out_height = std::min(box, scaled.height);
+  const size_t out_bytes =
+      static_cast<size_t>(out_width) * out_height * sizeof(uint16_t);
+  auto* pixels = static_cast<uint8_t*>(
+      heap_caps_malloc(out_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (pixels == nullptr) {
+    FreeJpegImage(&scaled);
+    return false;
+  }
+  const uint32_t left = (scaled.width - out_width) / 2;
+  const uint32_t top = (scaled.height - out_height) / 2;
+  for (uint32_t row = 0; row < out_height; ++row) {
+    std::memcpy(pixels + static_cast<size_t>(row) * out_width * 2,
+        scaled.pixels + (static_cast<size_t>(top + row) * scaled.width + left) * 2,
+        static_cast<size_t>(out_width) * 2);
+  }
+  image->source_width = scaled.source_width;
+  image->source_height = scaled.source_height;
+  FreeJpegImage(&scaled);
+  image->pixels = pixels;
+  image->size_bytes = out_bytes;
+  image->width = out_width;
+  image->height = out_height;
+  return true;
+}
+
+bool LoadJpegThumbnail(const char* path, uint32_t box, JpegImage* image) {
+  if (path == nullptr || image == nullptr) {
+    return false;
+  }
+  size_t file_bytes = 0;
+  uint8_t* file_data = ReadFileIntoDecoderBuffer(path, &file_bytes);
+  if (file_data == nullptr) {
+    return false;
+  }
+  const bool made = DecodeJpegThumbnail(file_data, file_bytes, box, image);
+  free(file_data);
+  return made;
+}
+
 bool RunJpegColorSelfTest(char* report, size_t report_size) {
   if (report == nullptr || report_size == 0) {
     return false;

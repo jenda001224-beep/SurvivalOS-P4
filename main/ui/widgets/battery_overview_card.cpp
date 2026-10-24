@@ -9,6 +9,7 @@
 
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
+#include "ui/theme/survival_palette.h"
 
 namespace lilygo_box::ui {
 namespace {
@@ -159,11 +160,24 @@ void UpdateBatteryOverviewCard(const BatteryOverviewCard& card,
   }
 
   const int percent = std::clamp(status.charge_percent, 0, 100);
-  lv_obj_set_style_bg_color(card.card,
-      lv_color_hex(RestColor(percent, status.charging)), LV_PART_MAIN);
   lv_obj_set_width(card.fill, std::max(1, card.width * percent / 100));
-  lv_obj_set_style_bg_color(card.fill,
-      lv_color_hex(FillColor(percent, status.charging)), LV_PART_MAIN);
+  if (survival_look::Active()) {
+    // Black card, a hairline frame, a barely lit bar and red text.
+    lv_obj_set_style_bg_color(card.card, lv_color_hex(survival_look::kBlack), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card.card, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(card.card, lv_color_hex(survival_look::kFaint), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card.fill, lv_color_hex(survival_look::kFaint), LV_PART_MAIN);
+    lv_obj_set_style_text_color(card.time_label, lv_color_hex(survival_look::kText), LV_PART_MAIN);
+    lv_obj_set_style_text_color(card.status_label, lv_color_hex(survival_look::kDim), LV_PART_MAIN);
+  } else {
+    lv_obj_set_style_border_width(card.card, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card.card,
+        lv_color_hex(RestColor(percent, status.charging)), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card.fill,
+        lv_color_hex(FillColor(percent, status.charging)), LV_PART_MAIN);
+    lv_obj_set_style_text_color(card.time_label, lv_color_hex(kTextColor), LV_PART_MAIN);
+    lv_obj_set_style_text_color(card.status_label, lv_color_hex(kTextColor), LV_PART_MAIN);
+  }
 
   if (status.capabilities.remaining_time) {
     char time_text[32] = {};

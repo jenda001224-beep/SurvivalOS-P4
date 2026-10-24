@@ -324,6 +324,21 @@ class UiManager final {
   void ApplyEditionToLauncher();
 
   /**
+   * @brief Survival Mode look on the home screen: no wallpaper, no tiles,
+   *        thin red glyphs on black. Off restores the normal look.
+   * @param on Whether Survival Mode is on.
+   */
+  void ApplySurvivalLook(bool on);
+
+  /**
+   * @brief Restyles one launcher icon for ApplySurvivalLook().
+   * @param context Icon.
+   * @param on Survival look on.
+   * @param glow_opacity Glow used by the normal look.
+   */
+  static void StyleIconForSurvival(AppButtonContext* context, bool on, lv_opa_t glow_opacity);
+
+  /**
    * @brief Opens Settings straight on its WLAN page.
    */
   void OpenWifiSettings();
@@ -745,6 +760,8 @@ class UiManager final {
   IconLayout dock_icon_layout_;
   // Set by the setup assistant; acted on once it has faded out.
   bool open_wifi_settings_after_setup_ = false;
+  // Survival Mode state the launcher was last laid out for.
+  bool launcher_shows_survival_ = false;
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;

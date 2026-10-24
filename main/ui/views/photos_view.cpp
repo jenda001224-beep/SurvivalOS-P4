@@ -7,13 +7,21 @@
 #include <dirent.h>
 #include <strings.h>
 
+#include <sys/stat.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <utility>
 
 #include "base/logger.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "misc/cache/instance/lv_image_cache.h"
 #include "app/edition.h"
 #include "hal/providers/storage_provider.h"
 #include "survival/avi_reader.h"
@@ -35,10 +43,31 @@ constexpr int kGridColumns = 3;
 constexpr int kGridGap = 6;
 constexpr int kHeaderHeight = 108;
 constexpr int kSidePadding = 12;
-// Thumbnails are decoded a few at a time so the grid stays responsive while it
-// fills in, the way a phone gallery does.
-constexpr uint32_t kThumbnailTimerMs = 20;
-constexpr int kThumbnailsPerTick = 1;
+// Thumbnails are made by a worker task below the UI's priority, visible cells
+// first, and kept on the card in DCIM/.thumbs so a second visit only reads
+// 60 kB per cell instead of decoding a 1080p JPEG. The UI timer only hangs the
+// finished ones into their cells.
+constexpr uint32_t kThumbnailTimerMs = 40;
+constexpr const char* kThumbnailCacheDirectory = ".thumbs";
+constexpr uint32_t kThumbnailCacheMagic = 0x48545653;  // "SVTH"
+// Rows kept decoded above and below the visible ones; the rest are dropped so
+// a card with hundreds of photos does not fill the PSRAM.
+constexpr int kKeepRowsBehind = 4;
+constexpr int kKeepRowsAhead = 6;
+constexpr uint32_t kWorkerStackBytes = 6144;
+constexpr UBaseType_t kWorkerPriority = 2;
+constexpr TickType_t kWorkerIdleTicks = pdMS_TO_TICKS(30);
+// A swipe has to travel this far, mostly sideways, to change the photo.
+constexpr int kSwipeDistance = 70;
+// Presses that start this close to the left edge belong to the back gesture.
+constexpr int kBackEdgeWidth = 36;
+
+enum ThumbnailState : uint8_t {
+  kThumbnailNone = 0,
+  kThumbnailWorking = 1,
+  kThumbnailReady = 2,
+  kThumbnailFailed = 3,
+};
 
 // One photo or video on the card.
 struct Photo {
@@ -49,8 +78,24 @@ struct Photo {
   lv_image_dsc_t thumbnail_descriptor = {};
   lv_obj_t* cell = nullptr;
   lv_obj_t* image = nullptr;
-  bool thumbnail_ready = false;
-  bool thumbnail_failed = false;
+  // Written by the worker (None -> Working -> Ready/Failed) and by the UI
+  // (Ready -> None when the thumbnail is dropped); never both on one state.
+  std::atomic<uint8_t> thumbnail_state{kThumbnailNone};
+
+  Photo() = default;
+  // Moves are for sorting the list, which happens before the worker starts.
+  Photo(Photo&& other) noexcept { *this = std::move(other); }
+  Photo& operator=(Photo&& other) noexcept {
+    std::memcpy(name, other.name, sizeof(name));
+    std::memcpy(path, other.path, sizeof(path));
+    video = other.video;
+    thumbnail = other.thumbnail;
+    thumbnail_descriptor = other.thumbnail_descriptor;
+    cell = other.cell;
+    image = other.image;
+    thumbnail_state.store(other.thumbnail_state.load());
+    return *this;
+  }
 };
 
 struct PhotosViewState {
@@ -60,11 +105,25 @@ struct PhotosViewState {
   lv_obj_t* title = nullptr;
   lv_obj_t* empty_label = nullptr;
   lv_timer_t* thumbnail_timer = nullptr;
+  // Thumbnail worker.
+  TaskHandle_t worker = nullptr;
+  SemaphoreHandle_t worker_done = nullptr;
+  std::atomic<bool> worker_stop{false};
+  // Range the worker may fill, in photo indices, visible ones first.
+  std::atomic<int> visible_first{0};
+  std::atomic<int> visible_last{0};
+  std::atomic<int> keep_first{0};
+  std::atomic<int> keep_last{0};
+  bool cache_on_card = false;
+  char cache_directory[kMaxPathLength] = {};
 
   // Full-screen viewer, created on demand.
   lv_obj_t* viewer = nullptr;
   lv_obj_t* viewer_image = nullptr;
   lv_obj_t* viewer_caption = nullptr;
+  lv_obj_t* viewer_back = nullptr;
+  lv_point_t press_point = {};
+  bool press_tracking = false;
   survival::JpegImage viewer_photo;
   lv_image_dsc_t viewer_descriptor = {};
   int viewer_index = -1;
@@ -80,7 +139,6 @@ struct PhotosViewState {
 
   Photo* photos = nullptr;
   size_t photo_count = 0;
-  size_t next_thumbnail = 0;
   int thumbnail_size = 0;
   int view_width = 0;
   int view_height = 0;
@@ -159,7 +217,6 @@ bool BuildDirectoryPath(
  */
 void ScanPhotos(PhotosViewState* state) {
   state->photo_count = 0;
-  state->next_thumbnail = 0;
   char directory[kMaxPathLength] = {};
   if (!BuildDirectoryPath(state, directory, sizeof(directory))) {
     return;
@@ -207,13 +264,238 @@ void ScanPhotos(PhotosViewState* state) {
  */
 void ReleaseThumbnails(PhotosViewState* state) {
   for (size_t index = 0; index < state->photo_count; ++index) {
+    lv_image_cache_drop(&state->photos[index].thumbnail_descriptor);
     survival::FreeJpegImage(&state->photos[index].thumbnail);
-    state->photos[index].thumbnail_ready = false;
+    state->photos[index].thumbnail_state.store(kThumbnailNone);
   }
 }
 
+// ── Thumbnail worker ─────────────────────────────────────────────────────────
+
+/**
+ * @brief Cache file of one photo's thumbnail.
+ */
+bool BuildThumbnailCachePath(const PhotosViewState* state, const Photo& photo,
+    char* buffer, size_t size) {
+  return state->cache_on_card &&
+      std::snprintf(buffer, size, "%s/%s.thm", state->cache_directory,
+          photo.name) < static_cast<int>(size);
+}
+
+struct ThumbnailCacheHeader {
+  uint32_t magic;
+  uint16_t width;
+  uint16_t height;
+  uint32_t source_bytes;
+  uint32_t reserved;
+};
+
+uint32_t SourceBytes(const Photo& photo) {
+  struct stat info = {};
+  return stat(photo.path, &info) == 0 ? static_cast<uint32_t>(info.st_size) : 0;
+}
+
+bool ReadCachedThumbnail(const PhotosViewState* state, const Photo& photo,
+    uint32_t source_bytes, survival::JpegImage* image) {
+  char path[kMaxPathLength + 16] = {};
+  if (!BuildThumbnailCachePath(state, photo, path, sizeof(path))) {
+    return false;
+  }
+  FILE* file = std::fopen(path, "rb");
+  if (file == nullptr) {
+    return false;
+  }
+  ThumbnailCacheHeader header = {};
+  bool ok = std::fread(&header, sizeof(header), 1, file) == 1 &&
+      header.magic == kThumbnailCacheMagic && header.width > 0 &&
+      header.height > 0 &&
+      header.width <= static_cast<uint32_t>(state->thumbnail_size) &&
+      header.height <= static_cast<uint32_t>(state->thumbnail_size) &&
+      header.source_bytes == source_bytes;
+  const size_t bytes = static_cast<size_t>(header.width) * header.height * 2;
+  uint8_t* pixels = nullptr;
+  if (ok) {
+    pixels = static_cast<uint8_t*>(
+        heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    ok = pixels != nullptr && std::fread(pixels, 1, bytes, file) == bytes;
+  }
+  std::fclose(file);
+  if (!ok) {
+    heap_caps_free(pixels);
+    return false;
+  }
+  *image = survival::JpegImage();
+  image->pixels = pixels;
+  image->size_bytes = bytes;
+  image->width = header.width;
+  image->height = header.height;
+  return true;
+}
+
+void WriteCachedThumbnail(const PhotosViewState* state, const Photo& photo,
+    uint32_t source_bytes, const survival::JpegImage& image) {
+  char path[kMaxPathLength + 16] = {};
+  if (source_bytes == 0 ||
+      !BuildThumbnailCachePath(state, photo, path, sizeof(path))) {
+    return;
+  }
+  FILE* file = std::fopen(path, "wb");
+  if (file == nullptr) {
+    return;
+  }
+  const ThumbnailCacheHeader header = {kThumbnailCacheMagic,
+      static_cast<uint16_t>(image.width), static_cast<uint16_t>(image.height),
+      source_bytes, 0};
+  const size_t bytes = static_cast<size_t>(image.width) * image.height * 2;
+  const bool ok = std::fwrite(&header, sizeof(header), 1, file) == 1 &&
+      std::fwrite(image.pixels, 1, bytes, file) == bytes;
+  std::fclose(file);
+  if (!ok) {
+    std::remove(path);
+  }
+}
+
+bool MakeThumbnail(const PhotosViewState* state, const Photo& photo,
+    survival::JpegImage* image) {
+  const uint32_t box = static_cast<uint32_t>(state->thumbnail_size);
+  const uint32_t source_bytes = state->cache_on_card ? SourceBytes(photo) : 0;
+  if (source_bytes != 0 &&
+      ReadCachedThumbnail(state, photo, source_bytes, image)) {
+    return true;
+  }
+  bool made = false;
+  if (photo.video) {
+    // A video's first frame is its thumbnail.
+    survival::AviReader reader;
+    if (reader.Open(photo.path) && reader.frame_count() > 0) {
+      const uint32_t capacity = reader.largest_frame();
+      auto* frame = static_cast<uint8_t*>(heap_caps_malloc(
+          capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      uint32_t size = 0;
+      if (frame != nullptr && reader.ReadFrame(0, frame, capacity, &size)) {
+        made = survival::DecodeJpegThumbnail(frame, size, box, image);
+      }
+      heap_caps_free(frame);
+    }
+  } else {
+    made = survival::LoadJpegThumbnail(photo.path, box, image);
+  }
+  if (made) {
+    WriteCachedThumbnail(state, photo, source_bytes, *image);
+  }
+  return made;
+}
+
+/**
+ * @brief Next photo to make a thumbnail for: visible ones top to bottom, then
+ *        the rows below, then those above.
+ * @return Index, or -1 when everything in range is done.
+ */
+int PickThumbnail(PhotosViewState* state) {
+  const int count = static_cast<int>(state->photo_count);
+  const int first = std::max(0, state->visible_first.load());
+  const int last = std::min(count - 1, state->visible_last.load());
+  const int keep_first = std::max(0, state->keep_first.load());
+  const int keep_last = std::min(count - 1, state->keep_last.load());
+  auto free_slot = [&](int index) {
+    return state->photos[index].thumbnail_state.load() == kThumbnailNone;
+  };
+  for (int index = first; index <= last; ++index) {
+    if (free_slot(index)) return index;
+  }
+  for (int index = last + 1; index <= keep_last; ++index) {
+    if (free_slot(index)) return index;
+  }
+  for (int index = first - 1; index >= keep_first; --index) {
+    if (free_slot(index)) return index;
+  }
+  return -1;
+}
+
+void ThumbnailWorker(void* argument) {
+  auto* state = static_cast<PhotosViewState*>(argument);
+  while (!state->worker_stop.load()) {
+    const int index = PickThumbnail(state);
+    if (index < 0) {
+      vTaskDelay(kWorkerIdleTicks);
+      continue;
+    }
+    Photo& photo = state->photos[index];
+    uint8_t expected = kThumbnailNone;
+    if (!photo.thumbnail_state.compare_exchange_strong(
+            expected, kThumbnailWorking)) {
+      continue;
+    }
+    survival::JpegImage image;
+    if (MakeThumbnail(state, photo, &image)) {
+      photo.thumbnail = image;
+      photo.thumbnail_state.store(kThumbnailReady);
+    } else {
+      photo.thumbnail_state.store(kThumbnailFailed);
+    }
+  }
+  xSemaphoreGive(state->worker_done);
+  vTaskDelete(nullptr);
+}
+
+/**
+ * @brief Starts the worker for the photos found by ScanPhotos().
+ */
+void StartThumbnailWorker(PhotosViewState* state) {
+  if (state->photo_count == 0 || state->worker != nullptr) {
+    return;
+  }
+  char directory[kMaxPathLength] = {};
+  bool on_card = false;
+  const char* base = app::MediaBasePath(state->storage, false, &on_card);
+  // Internal memory is too small to spend on a cache.
+  state->cache_on_card = on_card && base != nullptr &&
+      std::snprintf(directory, sizeof(directory), "%s/%s/%s", base,
+          kPhotoDirectory, kThumbnailCacheDirectory) < static_cast<int>(sizeof(directory));
+  if (state->cache_on_card) {
+    mkdir(directory, 0775);
+    std::snprintf(state->cache_directory, sizeof(state->cache_directory), "%s",
+        directory);
+  }
+  state->worker_done = xSemaphoreCreateBinary();
+  if (state->worker_done == nullptr) {
+    return;
+  }
+  state->worker_stop.store(false);
+  if (xTaskCreate(ThumbnailWorker, "photo_thumbs", kWorkerStackBytes, state,
+          kWorkerPriority, &state->worker) != pdPASS) {
+    state->worker = nullptr;
+    vSemaphoreDelete(state->worker_done);
+    state->worker_done = nullptr;
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create thumbnail worker failed\n");
+  }
+}
+
+/**
+ * @brief Stops the worker and waits until it no longer touches the state.
+ */
+bool StopThumbnailWorker(PhotosViewState* state) {
+  if (state->worker == nullptr) {
+    return true;
+  }
+  state->worker_stop.store(true);
+  // One thumbnail takes well under a second; a card that hangs must not hang
+  // the UI forever, so after the wait the state is left to the worker.
+  if (xSemaphoreTake(state->worker_done, pdMS_TO_TICKS(10000)) != pdTRUE) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Thumbnail worker did not stop\n");
+    return false;
+  }
+  vSemaphoreDelete(state->worker_done);
+  state->worker_done = nullptr;
+  state->worker = nullptr;
+  return true;
+}
+
 void CloseViewer(PhotosViewState* state);
-void ViewerGestureCallback(lv_event_t* event);
+void ViewerPressCallback(lv_event_t* event);
+void ViewerBackClickedCallback(lv_event_t* event);
 void StopVideo(PhotosViewState* state);
 
 /**
@@ -370,12 +652,41 @@ void OpenViewer(PhotosViewState* state, int index) {
         CreateLabel(state->viewer, "", 0xFFFFFF,
             &lvgl_font_google_sans_flex_22);
     if (state->viewer_caption != nullptr) {
-      lv_obj_align(state->viewer_caption, LV_ALIGN_TOP_MID, 0, 70);
+      lv_obj_align(state->viewer_caption, LV_ALIGN_TOP_MID, 40, 80);
     }
 
     // Swiping sideways steps through the library without leaving the viewer.
+    // The swipe is measured here rather than through LVGL's gesture event,
+    // which bubbles past the viewer to the screen and never arrived.
+    lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_SCROLL_CHAIN);
     lv_obj_add_event_cb(
-        state->viewer, ViewerGestureCallback, LV_EVENT_GESTURE, state);
+        state->viewer, ViewerPressCallback, LV_EVENT_PRESSED, state);
+    lv_obj_add_event_cb(
+        state->viewer, ViewerPressCallback, LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(
+        state->viewer, ViewerPressCallback, LV_EVENT_PRESS_LOST, state);
+
+    // A visible way back to the grid, next to the back gesture.
+    state->viewer_back = lv_button_create(state->viewer);
+    if (state->viewer_back != nullptr) {
+      lv_obj_set_size(state->viewer_back, 84, 84);
+      lv_obj_align(state->viewer_back, LV_ALIGN_TOP_LEFT, 16, 54);
+      lv_obj_set_style_radius(state->viewer_back, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(
+          state->viewer_back, lv_color_hex(0x000000), LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_back, LV_OPA_50, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_back, LV_OPA_80, LV_STATE_PRESSED);
+      lv_obj_set_style_shadow_width(state->viewer_back, 0, LV_PART_MAIN);
+      lv_obj_set_style_border_width(state->viewer_back, 0, LV_PART_MAIN);
+      lv_obj_add_event_cb(state->viewer_back, ViewerBackClickedCallback,
+          LV_EVENT_CLICKED, state);
+      lv_obj_t* arrow = CreateLabel(state->viewer_back, icon::kArrowBack,
+          0xFFFFFF, &lvgl_font_material_symbols_fill_32);
+      if (arrow != nullptr) {
+        lv_obj_center(arrow);
+      }
+    }
 
     // Inside the viewer the back gesture closes the photo instead of the app.
     RegisterConditionalBackNavigationHandler(state->viewer, [state]() {
@@ -444,29 +755,69 @@ void CellClickedCallback(lv_event_t* event) {
 }
 
 /**
- * @brief Steps to the next or previous photo, or closes on a tap.
- * @param event LVGL event.
+ * @brief Moves the viewer one photo forward or back.
  */
-void ViewerGestureCallback(lv_event_t* event) {
-  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
-  if (state == nullptr || state->viewer_index < 0) {
-    return;
-  }
-  const lv_dir_t direction = lv_indev_get_gesture_dir(lv_indev_active());
-  int next = state->viewer_index;
-  if (direction == LV_DIR_LEFT) {
-    next = state->viewer_index + 1;
-  } else if (direction == LV_DIR_RIGHT) {
-    next = state->viewer_index - 1;
-  } else {
-    return;
-  }
+void StepViewer(PhotosViewState* state, int step) {
+  const int next = state->viewer_index + step;
   if (next < 0 || next >= static_cast<int>(state->photo_count)) {
     PlayUiHapticEffect(HapticEffect::kWarning);
     return;
   }
   PlayUiHapticEffect(HapticEffect::kSelection);
   OpenViewer(state, next);
+}
+
+void ViewerBackClickedCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    PlayUiHapticEffect(HapticEffect::kImpactLight);
+    CloseViewer(state);
+  }
+}
+
+/**
+ * @brief Swipe left or right for the next or previous photo, down to go back
+ *        to the grid; a tap near either side also steps.
+ * @param event LVGL event.
+ */
+void ViewerPressCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  lv_indev_t* indev = lv_indev_active();
+  if (state == nullptr || state->viewer_index < 0 || indev == nullptr) {
+    return;
+  }
+  lv_point_t point = {};
+  lv_indev_get_point(indev, &point);
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESSED) {
+    state->press_point = point;
+    state->press_tracking = point.x >= kBackEdgeWidth;
+    return;
+  }
+  if (!state->press_tracking) {
+    return;
+  }
+  state->press_tracking = false;
+  if (code == LV_EVENT_PRESS_LOST) {
+    return;
+  }
+  const int dx = point.x - state->press_point.x;
+  const int dy = point.y - state->press_point.y;
+  const int adx = dx < 0 ? -dx : dx;
+  const int ady = dy < 0 ? -dy : dy;
+  if (adx >= kSwipeDistance && adx > ady) {
+    StepViewer(state, dx < 0 ? 1 : -1);
+  } else if (dy >= 2 * kSwipeDistance && ady > adx) {
+    PlayUiHapticEffect(HapticEffect::kImpactLight);
+    CloseViewer(state);
+  } else if (adx < 20 && ady < 20) {
+    // A tap on the outer fifths steps, like turning a page.
+    if (point.x > state->view_width * 4 / 5) {
+      StepViewer(state, 1);
+    } else if (point.x < state->view_width / 5 && point.y > 160) {
+      StepViewer(state, -1);
+    }
+  }
 }
 
 /**
@@ -508,10 +859,11 @@ void RebuildGrid(PhotosViewState* state) {
     const int row = static_cast<int>(index) / kGridColumns;
     lv_obj_set_pos(cell, column * (state->thumbnail_size + kGridGap),
         row * (state->thumbnail_size + kGridGap));
-    lv_obj_set_style_radius(cell, 10, LV_PART_MAIN);
+    // Square cells: rounded clipping made LVGL draw every visible cell
+    // through an extra layer, which is what made scrolling stutter.
+    lv_obj_set_style_radius(cell, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(cell, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(cell, 0, LV_PART_MAIN);
-    lv_obj_set_style_clip_corner(cell, true, LV_PART_MAIN);
     lv_obj_set_style_bg_color(cell,
         lv_color_hex(theme::ActiveThemeColors().surface_container_high),
         LV_PART_MAIN);
@@ -522,7 +874,7 @@ void RebuildGrid(PhotosViewState* state) {
     photo.cell = cell;
     photo.image = nullptr;
 
-    if (photo.thumbnail_ready) {
+    if (photo.thumbnail_state.load() == kThumbnailReady) {
       lv_obj_t* image = lv_image_create(cell);
       if (image != nullptr) {
         lv_image_set_src(image, &photo.thumbnail_descriptor);
@@ -541,64 +893,60 @@ void RebuildGrid(PhotosViewState* state) {
 }
 
 /**
- * @brief Decodes the next few thumbnails and drops them into their cells.
+ * @brief Tells the worker what is on screen, hangs finished thumbnails into
+ *        their cells and drops those far out of view.
  * @param timer LVGL timer.
  */
-void ThumbnailTimerCallback(lv_timer_t* timer) {
-  auto* state = static_cast<PhotosViewState*>(lv_timer_get_user_data(timer));
-  if (state == nullptr) {
+void UpdateThumbnails(PhotosViewState* state) {
+  if (state == nullptr || state->grid == nullptr || state->photo_count == 0) {
     return;
   }
-  if (state->next_thumbnail >= state->photo_count) {
-    lv_timer_delete(timer);
-    state->thumbnail_timer = nullptr;
-    return;
-  }
+  const int row_height = state->thumbnail_size + kGridGap;
+  const int scroll = std::max<int>(0, lv_obj_get_scroll_y(state->grid));
+  const int first_row = scroll / row_height;
+  const int visible_rows = lv_obj_get_height(state->grid) / row_height + 2;
+  const int count = static_cast<int>(state->photo_count);
+  state->visible_first.store(first_row * kGridColumns);
+  state->visible_last.store(
+      std::min(count, (first_row + visible_rows) * kGridColumns) - 1);
+  const int keep_first =
+      std::max(0, (first_row - kKeepRowsBehind) * kGridColumns);
+  const int keep_last = std::min(count,
+      (first_row + visible_rows + kKeepRowsAhead) * kGridColumns) - 1;
+  state->keep_first.store(keep_first);
+  state->keep_last.store(keep_last);
 
-  for (int produced = 0;
-      produced < kThumbnailsPerTick && state->next_thumbnail <
-          state->photo_count;
-      ++produced) {
-    Photo& photo = state->photos[state->next_thumbnail];
-    ++state->next_thumbnail;
-    if (photo.thumbnail_ready || photo.thumbnail_failed) {
+  for (int index = 0; index < count; ++index) {
+    Photo& photo = state->photos[index];
+    if (photo.thumbnail_state.load() != kThumbnailReady) {
       continue;
     }
-    const uint32_t box = static_cast<uint32_t>(state->thumbnail_size);
-    bool decoded = false;
-    if (photo.video) {
-      // A video's first frame is its thumbnail.
-      survival::AviReader reader;
-      if (reader.Open(photo.path) && reader.frame_count() > 0) {
-        const uint32_t capacity = reader.largest_frame();
-        auto* frame = static_cast<uint8_t*>(heap_caps_malloc(
-            capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        uint32_t size = 0;
-        if (frame != nullptr && reader.ReadFrame(0, frame, capacity, &size)) {
-          decoded = survival::DecodeJpegBuffer(
-              frame, size, box, box, &photo.thumbnail);
-        }
-        heap_caps_free(frame);
+    if (index < keep_first || index > keep_last) {
+      if (photo.image != nullptr) {
+        lv_obj_delete(photo.image);
+        photo.image = nullptr;
       }
-    } else {
-      decoded = survival::LoadJpegImage(photo.path, box, box,
-          &photo.thumbnail);
-    }
-    if (!decoded) {
-      photo.thumbnail_failed = true;
+      lv_image_cache_drop(&photo.thumbnail_descriptor);
+      survival::FreeJpegImage(&photo.thumbnail);
+      photo.thumbnail_state.store(kThumbnailNone);
       continue;
     }
-    photo.thumbnail_ready = true;
-    FillImageDescriptor(&photo.thumbnail_descriptor, photo.thumbnail);
     if (photo.cell != nullptr && photo.image == nullptr) {
+      lv_image_cache_drop(&photo.thumbnail_descriptor);
+      FillImageDescriptor(&photo.thumbnail_descriptor, photo.thumbnail);
       lv_obj_t* image = lv_image_create(photo.cell);
       if (image != nullptr) {
         lv_image_set_src(image, &photo.thumbnail_descriptor);
         lv_obj_center(image);
+        lv_obj_move_to_index(image, 0);
         photo.image = image;
       }
     }
   }
+}
+
+void ThumbnailTimerCallback(lv_timer_t* timer) {
+  UpdateThumbnails(static_cast<PhotosViewState*>(lv_timer_get_user_data(timer)));
 }
 
 /**
@@ -613,6 +961,10 @@ void ViewDeletedCallback(lv_event_t* event) {
   if (state->thumbnail_timer != nullptr) {
     lv_timer_delete(state->thumbnail_timer);
     state->thumbnail_timer = nullptr;
+  }
+  if (!StopThumbnailWorker(state)) {
+    // The worker still holds the state; leaking it beats a crash.
+    return;
   }
   StopVideo(state);
   ReleaseThumbnails(state);
@@ -697,6 +1049,10 @@ lv_obj_t* CreatePhotosView(lv_obj_t* parent, const app::AppEntry& app_entry,
       LogMessage(LogLevel::kError, __FILE__, __LINE__,
           "Create thumbnail timer failed\n");
     }
+    // Publish the visible range before the worker starts picking.
+    lv_obj_update_layout(container);
+    UpdateThumbnails(state);
+    StartThumbnailWorker(state);
   }
   return container;
 }

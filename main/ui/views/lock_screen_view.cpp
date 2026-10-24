@@ -12,13 +12,17 @@
 #include "ui/resources/fonts/font_assets.h"
 #include "ui/resources/fonts/icon_assets.h"
 #include "ui/theme/theme_provider.h"
+#include "ui/theme/survival_palette.h"
 #include "ui/wallpaper.h"
 #include "ui/widgets/battery_overview_card.h"
 
 namespace lilygo_box::ui {
 namespace {
 
-constexpr int kLockClockTop = 90;
+// SurvivalOS: thin clock and date above the battery card.
+constexpr int kLockTimeTop = 96;
+constexpr int kLockDateGap = 6;
+constexpr int kLockCardTop = 330;
 constexpr int kLockHorizontalPadding = 10;
 constexpr int kUnlockHintBottom = 46;
 constexpr uint32_t kLockResetAnimationMs = 180;
@@ -99,6 +103,8 @@ void SetObjectY(void* object, int32_t value) {
 // belongs to rather than being looked up through the object tree.
 BatteryOverviewCard g_battery_card;
 lv_obj_t* g_battery_card_owner = nullptr;
+lv_obj_t* g_time_label = nullptr;
+lv_obj_t* g_date_label = nullptr;
 
 /**
  * @brief Forgets the battery card when its lock screen is deleted.
@@ -108,6 +114,8 @@ void LockScreenDeleteEventCallback(lv_event_t* event) {
   if (lv_event_get_target_obj(event) == g_battery_card_owner) {
     g_battery_card = {};
     g_battery_card_owner = nullptr;
+    g_time_label = nullptr;
+    g_date_label = nullptr;
   }
 }
 
@@ -131,7 +139,8 @@ lv_obj_t* CreateBatteryGroup(
   lv_obj_set_style_pad_all(group, 0, LV_PART_MAIN);
   const int group_width = options.screen_width - 2 * kLockHorizontalPadding;
   lv_obj_set_size(group, group_width, kGroupHeight);
-  lv_obj_align(group, LV_ALIGN_TOP_LEFT, kLockHorizontalPadding, kLockClockTop);
+  lv_obj_align(group, LV_ALIGN_TOP_LEFT, kLockHorizontalPadding,
+      kLockCardTop - (kGroupHeight - kBatteryOverviewCardHeight) / 2);
 
   BatteryOverviewCard card;
   if (!CreateBatteryOverviewCard(
@@ -167,16 +176,47 @@ lv_obj_t* CreateLockScreenView(
   lv_obj_set_style_border_width(lock_screen, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(lock_screen, 0, LV_PART_MAIN);
 
+  WallpaperObjects wallpaper;
   CreateWallpaperObjects(
-      lock_screen, options.screen_width, options.screen_height);
+      lock_screen, options.screen_width, options.screen_height, &wallpaper);
+  // SurvivalOS: Survival Mode keeps the panel almost dark: no wallpaper.
+  if (survival_look::Active()) {
+    lv_obj_set_style_bg_color(lock_screen, lv_color_hex(survival_look::kBlack), LV_PART_MAIN);
+    for (lv_obj_t* layer : wallpaper.layers) {
+      if (layer != nullptr) {
+        lv_obj_add_flag(layer, LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+  }
 
   if (CreateBatteryGroup(lock_screen, options) == nullptr) {
     lv_obj_delete(lock_screen);
     return nullptr;
   }
 
+  // Thin digits: on an AMOLED only lit pixels cost power.
+  const bool survival = survival_look::Active();
+  const lv_color_t text_color = lv_color_hex(
+      survival ? survival_look::kText : theme::FixedColors().lock_screen_text);
+  g_time_label = CreateLabel(
+      lock_screen, "--:--", text_color, &lvgl_font_lineseed_th_150);
+  if (g_time_label != nullptr) {
+    lv_obj_align(g_time_label, LV_ALIGN_TOP_MID, 0, kLockTimeTop);
+  }
+  g_date_label = CreateLabel(lock_screen, "",
+      survival ? lv_color_hex(survival_look::kDim) : text_color,
+      &lvgl_font_google_sans_flex_32);
+  if (g_date_label != nullptr) {
+    lv_obj_set_style_text_opa(g_date_label, survival ? LV_OPA_COVER : 210, LV_PART_MAIN);
+    if (g_time_label != nullptr) {
+      lv_obj_align_to(g_date_label, g_time_label, LV_ALIGN_OUT_BOTTOM_MID, 0,
+          kLockDateGap);
+    }
+  }
+
   lv_obj_t* arrow = CreateLabel(lock_screen, icon::kKeyboardArrowUp,
-      lv_color_hex(theme::FixedColors().lock_screen_text),
+      lv_color_hex(survival_look::Active() ? survival_look::kDim
+                                           : theme::FixedColors().lock_screen_text),
       MaterialOutlineIconFont56());
   if (arrow == nullptr) {
     lv_obj_delete(lock_screen);
@@ -191,12 +231,22 @@ lv_obj_t* CreateLockScreenView(
 
 void UpdateLockScreenViewClock(lv_obj_t* lock_screen, const char* time_text,
     const char* date_text, const char* week_text) {
-  // The lock screen no longer shows a clock (see CreateBatteryGroup). The
-  // function stays so the callers upstream has need no change.
-  (void)lock_screen;
-  (void)time_text;
-  (void)date_text;
-  (void)week_text;
+  if (lock_screen == nullptr || lock_screen != g_battery_card_owner) {
+    return;
+  }
+  if (g_time_label != nullptr && time_text != nullptr && time_text[0] != '\0') {
+    lv_label_set_text(g_time_label, time_text);
+  }
+  if (g_date_label != nullptr && date_text != nullptr) {
+    // "Sat, Oct 24th"
+    lv_label_set_text_fmt(g_date_label, "%s%s%s",
+        week_text != nullptr ? week_text : "",
+        week_text != nullptr && week_text[0] != '\0' ? ", " : "", date_text);
+    if (g_time_label != nullptr) {
+      lv_obj_align_to(g_date_label, g_time_label, LV_ALIGN_OUT_BOTTOM_MID, 0,
+          kLockDateGap);
+    }
+  }
 }
 
 void UpdateLockScreenViewBattery(

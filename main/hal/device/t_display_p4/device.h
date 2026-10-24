@@ -60,6 +60,7 @@ class TDisplayP4Device final : public ScreenProvider,
    * @return 关机准备成功时返回 kEnterDeepSleep，否则返回 kFailed。
    */
   PowerOffAction RequestPowerOff() override;
+  bool PrepareSurvivalDeepSleep() override;
 
   /**
    * @brief 读取当前 T-Display-P4 设备信息
