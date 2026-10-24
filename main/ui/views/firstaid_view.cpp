@@ -31,7 +31,7 @@
 #include "hal/providers/storage_provider.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "survival/jpeg_image.h"
-#include "survival/nature_pack.h"
+#include "survival/nature_world.h"
 #include "ui/haptic_feedback.h"
 #include "ui/input/back_navigation_controller.h"
 #include "ui/resources/fonts/font_assets.h"
@@ -82,7 +82,7 @@ struct FirstAidState {
   lv_timer_t* search_timer = nullptr;
   std::vector<lv_obj_t*> pages;
   Cabinet cabinet;
-  survival::NaturePack nature;
+  survival::NatureWorld nature;
   bool nature_tried = false;
   int year = 0;
   int month = 0;
@@ -341,21 +341,8 @@ bool OpenNature(FirstAidState* state) {
   }
   char directory[96];
   std::snprintf(directory, sizeof(directory), "%s/nature", state->storage->SdCardBasePath());
-  DIR* folder = opendir(directory);
-  if (folder == nullptr) {
-    return false;
-  }
   char path[200] = {};
-  for (dirent* entry = readdir(folder); entry != nullptr; entry = readdir(folder)) {
-    const size_t length = std::strlen(entry->d_name);
-    if (entry->d_name[0] != '.' && length > 6 &&
-        strcasecmp(entry->d_name + length - 6, ".svnat") == 0) {
-      std::snprintf(path, sizeof(path), "%s/%s", directory, entry->d_name);
-      break;
-    }
-  }
-  closedir(folder);
-  return path[0] != '\0' && state->nature.Open(path);
+  return survival::FindNatureWorld(directory, path, sizeof(path)) && state->nature.Open(path);
 }
 
 void PhotoDeleted(lv_event_t* event) {
@@ -372,40 +359,38 @@ lv_obj_t* PlantPhoto(FirstAidState* state, lv_obj_t* parent, const char* latin) 
   if (!OpenNature(state)) {
     return nullptr;
   }
-  const survival::NaturePack& pack = state->nature;
-  for (uint32_t i = 0; i < pack.SpeciesCount(); ++i) {
-    const survival::NatureSpecies& species = pack.Species(i);
-    if (strcasecmp(pack.Name(species.name_lat), latin) != 0 || species.photo_count == 0) {
-      continue;
-    }
-    size_t size = 0;
-    uint8_t* jpeg = state->nature.ReadPhoto(species.first_photo, &size);
-    if (jpeg == nullptr) {
-      return nullptr;
-    }
-    auto* holder = new (std::nothrow) PhotoHolder();
-    const bool ok = holder != nullptr &&
-        survival::DecodeJpegThumbnail(jpeg, size, kPlantPhoto, &holder->image);
-    heap_caps_free(jpeg);
-    if (!ok) {
-      delete holder;
-      return nullptr;
-    }
-    holder->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-    holder->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
-    holder->descriptor.header.w = holder->image.width;
-    holder->descriptor.header.h = holder->image.height;
-    holder->descriptor.header.stride = holder->image.width * 2;
-    holder->descriptor.data = holder->image.pixels;
-    holder->descriptor.data_size = holder->image.width * holder->image.height * 2;
-    lv_obj_t* image = lv_image_create(parent);
-    lv_obj_add_event_cb(image, PhotoDeleted, LV_EVENT_DELETE, holder);
-    lv_image_set_src(image, &holder->descriptor);
-    lv_obj_set_style_radius(image, 16, LV_PART_MAIN);
-    lv_obj_set_style_clip_corner(image, true, LV_PART_MAIN);
-    return image;
+  const int species = state->nature.FindLatin(latin);
+  survival::NatureRecord record;
+  if (species < 0 || !state->nature.Record(static_cast<uint32_t>(species), &record) ||
+      state->nature.Attributes(static_cast<uint32_t>(species)).photo_count == 0) {
+    return nullptr;
   }
-  return nullptr;
+  size_t size = 0;
+  uint8_t* jpeg = state->nature.ReadPhoto(record.first_photo, &size);
+  if (jpeg == nullptr) {
+    return nullptr;
+  }
+  auto* holder = new (std::nothrow) PhotoHolder();
+  const bool ok = holder != nullptr &&
+      survival::DecodeJpegThumbnail(jpeg, size, kPlantPhoto, &holder->image);
+  heap_caps_free(jpeg);
+  if (!ok) {
+    delete holder;
+    return nullptr;
+  }
+  holder->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+  holder->descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
+  holder->descriptor.header.w = holder->image.width;
+  holder->descriptor.header.h = holder->image.height;
+  holder->descriptor.header.stride = holder->image.width * 2;
+  holder->descriptor.data = holder->image.pixels;
+  holder->descriptor.data_size = holder->image.width * holder->image.height * 2;
+  lv_obj_t* image = lv_image_create(parent);
+  lv_obj_add_event_cb(image, PhotoDeleted, LV_EVENT_DELETE, holder);
+  lv_image_set_src(image, &holder->descriptor);
+  lv_obj_set_style_radius(image, 16, LV_PART_MAIN);
+  lv_obj_set_style_clip_corner(image, true, LV_PART_MAIN);
+  return image;
 }
 
 // ── Guide page ──────────────────────────────────────────────────────────────

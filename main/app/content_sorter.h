@@ -15,7 +15,7 @@ namespace lilygo_box::app {
  * The web page tells people to copy what they downloaded anywhere on the
  * card. This looks at the card's top folder and one level below it and moves
  * `.zim` (and split `.zimaa`...) files to /wiki, `.pmtiles` / `.svtrails` to
- * /maps, the field guide (`.svnat`) to /nature and loose `.mp3` files in the
+ * /maps, the field guide (`.svnat3`, older `.svnat`) to /nature and loose `.mp3` files in the
  * top folder to /Music. A move on the
  * same card only renames, so even a 50 GB file takes no time. Files already
  * in place, macOS "._" shadow files and anything with a name clash are left

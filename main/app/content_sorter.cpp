@@ -67,7 +67,7 @@ Kind Classify(const char* name, bool top_level) {
   if (HasExtension(name, ".zim", true)) {
     return Kind::kWiki;
   }
-  if (HasExtension(name, ".svnat", true)) {
+  if (HasExtension(name, ".svnat3", true) || HasExtension(name, ".svnat", true)) {
     return Kind::kNature;
   }
   if (HasExtension(name, ".svtr", true)) {

@@ -254,6 +254,10 @@
       "cpp_name": "kMedicalServices",
       "codepoint": 61705
     },
+    "OpenInFull": {
+      "cpp_name": "kOpenInFull",
+      "codepoint": 61902
+    },
     "SkipNext": {
       "cpp_name": "kSkipNext",
       "codepoint": 57412

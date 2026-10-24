@@ -32,6 +32,7 @@ inline constexpr char kFolder[] = "\xEE\x8B\x87";
 inline constexpr char kFolderOpen[] = "\xEE\x8B\x88";
 inline constexpr char kForest[] = "\xEE\xAA\x99";
 inline constexpr char kMedicalServices[] = "\xEF\x84\x89";
+inline constexpr char kOpenInFull[] = "\xEF\x87\x8E";
 inline constexpr char kSkipNext[] = "\xEE\x81\x84";
 inline constexpr char kSkipPrevious[] = "\xEE\x81\x85";
 inline constexpr char kSwapHoriz[] = "\xEE\xA3\x94";
