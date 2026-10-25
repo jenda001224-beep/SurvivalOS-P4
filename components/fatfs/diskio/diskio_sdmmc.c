@@ -10,6 +10,9 @@
 #include "sdmmc_cmd.h"
 #include "esp_log.h"
 #include "esp_compiler.h"
+#include "esp_heap_caps.h"
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
 
 static sdmmc_card_t* s_cards[FF_VOLUMES] = { NULL };
 static bool s_disk_status_check_en[FF_VOLUMES] = { };
@@ -131,6 +134,26 @@ void ff_diskio_register_sdmmc(BYTE pdrv, sdmmc_card_t* card)
     };
     s_cards[pdrv] = card;
     s_disk_status_check_en[pdrv] = false;
+#if SOC_SDMMC_PSRAM_DMA_CAPABLE && CONFIG_SPIRAM
+    // SurvivalOS: reads into buffers that are not cache-line aligned need a
+    // bounce buffer. Without one of its own the SD driver allocates it from
+    // the internal DMA RAM on every read, and when that runs low (music
+    // playing, camera on) the read fails: a song stops, a map tile is missing.
+    // The P4 can DMA to PSRAM, so one 32 KB buffer there serves every read,
+    // in 64-sector chunks instead of 16. It is never freed: the next card
+    // that goes in uses it again.
+    static void* s_bounce_buffer = NULL;
+    if (card != NULL && card->host.dma_aligned_buffer == NULL) {
+        if (s_bounce_buffer == NULL) {
+            s_bounce_buffer = heap_caps_aligned_alloc(128, 32 * 1024,
+                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        }
+        if (s_bounce_buffer != NULL) {
+            card->host.dma_aligned_buffer = s_bounce_buffer;
+            card->host.unaligned_multi_block_rw_max_chunk_size = 64;
+        }
+    }
+#endif
     ff_diskio_register(pdrv, &sdmmc_impl);
 }
 
