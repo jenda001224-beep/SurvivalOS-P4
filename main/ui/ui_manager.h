@@ -719,6 +719,7 @@ class UiManager final {
   lv_obj_t* startup_progress_fill_ = nullptr;
   lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
+  bool lock_screen_survival_look_ = false;
   lv_obj_t* power_menu_ = nullptr;
   PromptDialogState keyboard_expansion_unavailable_prompt_;
   VolumeOverlay volume_overlay_;

@@ -5,6 +5,7 @@
  * @LastEditTime: 2026-09-02 17:54:29
  * @License: GPL 3.0
  */
+#include "ui/widgets/label_fit.h"
 #include "ui/views/cit_view.h"
 
 #include <algorithm>
@@ -4169,6 +4170,7 @@ bool ShowCitTest(CitViewState* state, size_t index) {
   }
   lv_obj_set_size(title, title_width, 70);
   lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(title);
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, kTitleLeft, kTitleTop);
 
   lv_obj_t* content = lv_obj_create(page);
@@ -4308,6 +4310,7 @@ lv_obj_t* CreateStatusRow(
   }
   lv_obj_set_width(name_label, name_label_width);
   lv_label_set_long_mode(name_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(name_label);
   AlignStatusLabels(icon_label, name_label);
 
   state->rows[state->row_count] = {

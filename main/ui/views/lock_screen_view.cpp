@@ -5,6 +5,7 @@
  * @LastEditTime: 2026-09-02 17:54:35
  * @License: GPL 3.0
  */
+#include "ui/widgets/label_fit.h"
 #include "ui/views/lock_screen_view.h"
 
 #include <algorithm>
@@ -291,6 +292,7 @@ void CreateNowPlayingCard(lv_obj_t* lock_screen, const LockScreenViewOptions& op
   np.title = CreateLabel(card, "", lv_color_hex(0xFFFFFF), &lvgl_font_google_sans_flex_28);
   lv_obj_set_width(np.title, text_width);
   lv_label_set_long_mode(np.title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(np.title);
   lv_obj_set_pos(np.title, text_left, 22);
   np.artist = CreateLabel(card, "", lv_color_hex(0xAEAEB2), &lvgl_font_google_sans_flex_24);
   lv_obj_set_width(np.artist, text_width);

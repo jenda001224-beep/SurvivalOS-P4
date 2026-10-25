@@ -14,6 +14,7 @@
 #include "app/wifi_manager.h"
 #include "esp_wifi.h"
 #include "hal/providers/screen_provider.h"
+#include "ui/widgets/label_fit.h"
 #include "ui/animation/transition_animation.h"
 #include "ui/input/press_cancel.h"
 #include "ui/resources/fonts/icon_assets.h"
@@ -2091,6 +2092,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_set_size(title, card_width - 240,
       static_cast<int>(lv_font_get_line_height(Font28())));
   lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(title);
   lv_obj_align(title, LV_ALIGN_LEFT_MID, 82, -16);
 
   lv_obj_t* subtitle =
@@ -2101,6 +2103,7 @@ bool CreateWifiConnectedCard(lv_obj_t* parent, SettingsViewState* state,
   lv_obj_set_size(subtitle, card_width - 210,
       static_cast<int>(lv_font_get_line_height(Font22())));
   lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(subtitle);
   lv_obj_align(subtitle, LV_ALIGN_LEFT_MID, 82, 22);
 
   if (is_5g) {
@@ -2212,6 +2215,7 @@ bool CreateWifiNetworkRow(lv_obj_t* parent, SettingsViewState* state,
           tag_reserve,
       static_cast<int>(lv_font_get_line_height(Font28())));
   lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(title);
   lv_obj_align(title, LV_ALIGN_LEFT_MID, kWifiNetworkTextLeft, 0);
 
   if (show_tag) {
@@ -2273,6 +2277,7 @@ bool CreateWifiSavedManageRow(
   lv_obj_set_size(name, width - 2 * kWifiSidePadding - button_width - 28,
       static_cast<int>(lv_font_get_line_height(Font32())));
   lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(name);
   lv_obj_align(name, LV_ALIGN_LEFT_MID, kWifiSidePadding, 0);
 
   lv_obj_t* button = lv_button_create(row);
@@ -2447,6 +2452,7 @@ bool CreateWifiSubHeader(
   lv_obj_set_size(title_label, state->config.width,
       static_cast<int>(lv_font_get_line_height(Font32())));
   lv_label_set_long_mode(title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(title_label);
   lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, kDetailTitleTop);
   return true;
@@ -3126,6 +3132,7 @@ bool ShowWifiConnectSheet(SettingsViewState* state,
   lv_obj_set_size(title, sheet_width - 2 * kWifiConnectSheetInnerPadding,
       static_cast<int>(lv_font_get_line_height(Font32())));
   lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(title);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 

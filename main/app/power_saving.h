@@ -56,12 +56,14 @@ inline constexpr uint32_t kSurvivalDeepSleepDelayMs = 4000;
 inline constexpr uint32_t kLockedDeepSleepDelayMs = 10000;
 inline constexpr int kSurvivalLockTimeoutSeconds = 20;
 inline constexpr int kSurvivalBrightnessCapPercent = 25;
-// CPU clock per mode. Battery life comes before smoothness: Low Power Mode
-// halves the clock, Survival Mode quarters it (its screens are almost black and
-// barely move, so they still draw quickly enough).
+// CPU clock per mode.
 inline constexpr int kNormalCpuMhz = 360;
-inline constexpr int kLowPowerCpuMhz = 180;
-inline constexpr int kSurvivalCpuMhz = 90;
+// Not lower: below 360 MHz the MIPI-DSI display cannot fetch its frame from
+// PSRAM fast enough ("underrun"), the log floods and the phone locks up or
+// restarts. That was the Low Power Mode crash (tested on the device
+// 2026-10-25). The modes save power with the frame rate, brightness and radios.
+inline constexpr int kLowPowerCpuMhz = 360;
+inline constexpr int kSurvivalCpuMhz = 360;
 
 /**
  * @brief Loads the saved state from NVS. Call once after NVS is up.

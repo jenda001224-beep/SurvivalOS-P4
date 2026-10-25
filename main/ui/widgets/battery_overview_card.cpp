@@ -169,6 +169,10 @@ void UpdateBatteryOverviewCard(const BatteryOverviewCard& card,
     lv_obj_set_style_bg_color(card.fill, lv_color_hex(survival_look::kFaint), LV_PART_MAIN);
     lv_obj_set_style_text_color(card.time_label, lv_color_hex(survival_look::kText), LV_PART_MAIN);
     lv_obj_set_style_text_color(card.status_label, lv_color_hex(survival_look::kDim), LV_PART_MAIN);
+    if (card.status_icon_label != nullptr) {
+      lv_obj_set_style_text_color(card.status_icon_label, lv_color_hex(survival_look::kDim),
+          LV_PART_MAIN);
+    }
   } else {
     lv_obj_set_style_border_width(card.card, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(card.card,
@@ -177,6 +181,9 @@ void UpdateBatteryOverviewCard(const BatteryOverviewCard& card,
         lv_color_hex(FillColor(percent, status.charging)), LV_PART_MAIN);
     lv_obj_set_style_text_color(card.time_label, lv_color_hex(kTextColor), LV_PART_MAIN);
     lv_obj_set_style_text_color(card.status_label, lv_color_hex(kTextColor), LV_PART_MAIN);
+    if (card.status_icon_label != nullptr) {
+      lv_obj_set_style_text_color(card.status_icon_label, lv_color_hex(kTextColor), LV_PART_MAIN);
+    }
   }
 
   // SurvivalOS: with no estimate yet (the gauge reports none while nothing

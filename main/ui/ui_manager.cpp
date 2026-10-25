@@ -1311,6 +1311,12 @@ bool UiManager::ShowLockScreen() {
   }
 
   RefreshSystemStatusNow();
+  // SurvivalOS: the lock screen is built once and kept; when Survival Mode
+  // was switched since, build it again in the right look (black, dim red).
+  if (lock_screen_ != nullptr && lock_screen_survival_look_ != survival_look::Active()) {
+    lv_obj_delete(lock_screen_);
+    lock_screen_ = nullptr;
+  }
   if (lock_screen_ != nullptr) {
     UpdateLockScreenViewClock(
         lock_screen_, clock_time_text_, home_date_text_, home_week_text_);
@@ -1337,6 +1343,7 @@ bool UiManager::ShowLockScreen() {
   if (lock_screen_ == nullptr) {
     return false;
   }
+  lock_screen_survival_look_ = survival_look::Active();
   if (system_status_cache_.battery_management_status_valid()) {
     UpdateLockScreenViewBattery(
         lock_screen_, system_status_cache_.battery_management_status());

@@ -5,6 +5,7 @@
  * @LastEditTime: 2026-09-02 17:54:31
  * @License: GPL 3.0
  */
+#include "ui/widgets/label_fit.h"
 #include "ui/views/files_view.h"
 
 #include <dirent.h>
@@ -723,6 +724,7 @@ int CreateBreadcrumbItem(lv_obj_t* parent, FilesViewState* state,
       std::min<int32_t>(lv_obj_get_width(label), kBreadcrumbTextMaxWidth);
   lv_obj_set_size(label, text_width, kBreadcrumbTextHeight);
   lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(label);
   lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
   const int item_width = text_width + 24;
   lv_obj_set_width(item, item_width);
@@ -877,6 +879,7 @@ bool CreateFileRow(lv_obj_t* parent, FilesViewState* state,
     lv_obj_set_size(
         name_label, width - kStorageRowTextX - 32, kStorageNameHeight);
     lv_label_set_long_mode(name_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(name_label);
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, kStorageRowTextX, 12);
   }
 

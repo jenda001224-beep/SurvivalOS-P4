@@ -5,6 +5,7 @@
  * @LastEditTime: 2026-09-02 17:54:44
  * @License: GPL 3.0
  */
+#include "ui/widgets/label_fit.h"
 #include "ui/views/radio_view.h"
 
 #include <algorithm>
@@ -3917,6 +3918,7 @@ bool CreateRadioStorageSettingRow(lv_obj_t* page, RadioViewState* state) {
   }
   lv_obj_set_width(subtitle, state->config.width - 68);
   lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(subtitle);
   lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 34, 65);
   return title != nullptr;
 }
@@ -4560,6 +4562,7 @@ void UpdateProfileSettingsNameLayout(RadioViewState* state) {
   lv_obj_set_width(name_action, action_width);
   lv_label_set_long_mode(state->profile_settings_name_label,
       scroll_name ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_CLIP);
+  EnsureLabelLineHeight(state->profile_settings_name_label);
   lv_obj_set_width(state->profile_settings_name_label, label_width);
   lv_obj_align(state->profile_settings_name_label, LV_ALIGN_LEFT_MID,
       kProfileNameActionHorizontalPadding, 0);
@@ -6681,6 +6684,7 @@ lv_obj_t* CreateAddSwitchRow(lv_obj_t* parent, RadioViewState* state,
   lv_obj_set_pos(title_label, 20, text_top);
   lv_obj_set_size(subtitle_label, state->config.width - 190, kSubtitleHeight);
   lv_label_set_long_mode(subtitle_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(subtitle_label);
   lv_obj_set_pos(subtitle_label, 20, text_top + kTitleHeight + kTextGap);
   lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);
@@ -6936,6 +6940,7 @@ lv_obj_t* CreateAutoSendSwitch(
   lv_obj_set_pos(title, 20, text_top);
   lv_obj_set_size(subtitle, state->config.width - 190, kSubtitleHeight);
   lv_label_set_long_mode(subtitle, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  EnsureLabelLineHeight(subtitle);
   lv_obj_set_pos(subtitle, 20, text_top + kTitleHeight + kTextGap);
   lv_obj_add_flag(toggle, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_set_size(toggle, kProfileSwitchWidth, kProfileSwitchHeight);

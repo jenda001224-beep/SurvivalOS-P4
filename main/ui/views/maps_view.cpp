@@ -777,14 +777,26 @@ lv_obj_t* CreateMapsView(lv_obj_t* parent, const app::AppEntry& app_entry,
     state->zoom = std::min(state->zoom, state->source.max_zoom());
     ApplyTrailsButtonState(state);
     RefreshTiles(state, 6);
-  } else if (state->status_label != nullptr) {
+  } else {
+    // SurvivalOS: the status line is rewritten with the position every second,
+    // so the note goes in the middle of the empty map instead.
     const bool card_mounted =
         state->storage != nullptr && state->storage->IsSdCardMounted();
-    lv_label_set_text(state->status_label,
-        card_mounted
-            ? "SD card OK, but no maps yet. Copy .pmtiles files from the "
-              "SurvivalOS web page anywhere on the card."
-            : "SD card not detected (needs FAT32 or exFAT).");
+    lv_obj_t* note = lv_label_create(container);
+    if (note != nullptr) {
+      lv_label_set_text(note,
+          card_mounted
+              ? "No maps on the SD card yet.\n\nOn the SurvivalOS web page pick a map "
+                "(Czechia, Europe or the world), download it and copy the files "
+                "anywhere on the card. They move to /maps by themselves."
+              : "SD card not detected.\n\nThe maps live on the card (FAT32 or exFAT).");
+      lv_obj_set_width(note, config.width - 80);
+      lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+      lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+      lv_obj_set_style_text_color(note, lv_color_hex(0x3A3A3C), LV_PART_MAIN);
+      lv_obj_set_style_text_font(note, &lvgl_font_google_sans_flex_24, LV_PART_MAIN);
+      lv_obj_align(note, LV_ALIGN_CENTER, 0, -80);
+    }
   }
   UpdateStatus(state);
 

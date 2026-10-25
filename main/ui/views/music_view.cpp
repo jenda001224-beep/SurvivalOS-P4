@@ -5,6 +5,7 @@
  * @LastEditTime: 2026-09-02 17:54:38
  * @License: GPL 3.0
  */
+#include "ui/widgets/label_fit.h"
 #include "ui/views/music_view.h"
 
 #include <sys/stat.h>
@@ -1467,6 +1468,7 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_set_size(state->player_title_label, text_width, title_height);
     lv_label_set_long_mode(
         state->player_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(state->player_title_label);
     lv_obj_align(state->player_title_label, LV_ALIGN_TOP_LEFT, text_x, title_y);
   }
   state->player_artist_label = CreateLabel(page, "Unknown Artist",
@@ -1476,6 +1478,7 @@ bool CreatePlayerPage(MusicViewState* state) {
     lv_obj_set_size(state->player_artist_label, text_width, artist_height);
     lv_label_set_long_mode(
         state->player_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(state->player_artist_label);
     lv_obj_align(
         state->player_artist_label, LV_ALIGN_TOP_LEFT, text_x, artist_y);
   }
@@ -1778,6 +1781,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
         static_cast<int>(lv_font_get_line_height(Font24())));
     lv_label_set_long_mode(
         state->mini_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(state->mini_title_label);
     lv_obj_align(state->mini_title_label, LV_ALIGN_LEFT_MID, 90, -15);
   }
   state->mini_artist_label = CreateLabel(card, "Unknown Artist",
@@ -1787,6 +1791,7 @@ bool CreateMiniPlayer(lv_obj_t* parent, MusicViewState* state) {
         static_cast<int>(lv_font_get_line_height(Font22())));
     lv_label_set_long_mode(
         state->mini_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(state->mini_artist_label);
     lv_obj_align(state->mini_artist_label, LV_ALIGN_LEFT_MID, 90, 19);
   }
 
@@ -2256,6 +2261,7 @@ bool CreateMusicSourcesPromptRow(
   if (path != nullptr) {
     lv_obj_set_size(path, state->config.width - 188, 32);
     lv_label_set_long_mode(path, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(path);
     lv_obj_align(path, LV_ALIGN_TOP_LEFT, 32, 12);
   }
   lv_obj_t* detail = CreateLabel(row, "Music search folder",
@@ -2397,6 +2403,7 @@ bool CreateTrackRowIn(MusicViewState* state, lv_obj_t* parent,
   if (title != nullptr) {
     lv_obj_set_size(title, state->config.width - 140, 34);
     lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(title);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 116, 18);
   }
   lv_obj_t* artist = CreateLabel(row, track.artist.c_str(),
@@ -2404,6 +2411,7 @@ bool CreateTrackRowIn(MusicViewState* state, lv_obj_t* parent,
   if (artist != nullptr) {
     lv_obj_set_size(artist, state->config.width - 140, 30);
     lv_label_set_long_mode(artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    EnsureLabelLineHeight(artist);
     lv_obj_align(artist, LV_ALIGN_TOP_LEFT, 116, 57);
   }
   lv_obj_t* divider = lv_obj_create(row);
