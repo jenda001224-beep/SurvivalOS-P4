@@ -99,6 +99,8 @@ constexpr uint32_t kDoubleTapPressConfirmationMs = 30;
 constexpr int kDoubleTapMaximumDistance = 100;
 constexpr uint32_t kPowerActionPreSleepSettleMs = 30;
 constexpr int kLowBatteryStartupThresholdPercent = 10;
+// A Li-ion cell above this still has a usable charge whatever the gauge says.
+constexpr int kLowBatteryStartupVoltageMv = 3600;
 constexpr uint32_t kLowBatteryStartupIconColor = 0xFF3B30;
 constexpr uint32_t kBatteryFaultStartupIconColor = 0xFF9500;
 constexpr uint32_t kPowerOffChargingScreenMs = 5 * 1000;
@@ -769,6 +771,27 @@ bool Application::Init() {
       device_provider_context_.battery_management != nullptr &&
       device_provider_context_.battery_management->ReadBatteryLevel(
           &startup_battery_level);
+  // SurvivalOS: the gauge can report 0 % for a moment after a reset. Powering
+  // off on that would leave a phone on the charger hanging at the warning (it
+  // cannot switch itself off while powered), and a healthy one would turn
+  // off. Only a low reading backed by a discharging battery at a low voltage
+  // counts.
+  if (startup_battery_management_ready &&
+      startup_battery_level < kLowBatteryStartupThresholdPercent) {
+    hal::BatteryManagementStatus battery_status;
+    for (int attempt = 0; attempt < 5 &&
+         device_provider_context_.battery_management->ReadBatteryManagementStatus(
+             &battery_status); ++attempt) {
+      if (battery_status.charging || battery_status.voltage_mv >= kLowBatteryStartupVoltageMv) {
+        LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+            "Battery reads %d%% at %d mV%s; starting anyway\n", startup_battery_level,
+            battery_status.voltage_mv, battery_status.charging ? " on the charger" : "");
+        startup_battery_level = kLowBatteryStartupThresholdPercent;
+        break;
+      }
+      vTaskDelay(pdMS_TO_TICKS(200));
+    }
+  }
   if (!startup_battery_management_ready) {
     const bool shown =
         ShowBatteryStartupWarning(ui::icon::kBatteryAndroidQuestion,
@@ -935,6 +958,14 @@ bool Application::Init() {
   serial_targets.camera = device_provider_context_.camera;
   serial_targets.battery = device_provider_context_.battery_management;
   serial_targets.lvgl = &lvgl_port_;
+  serial_targets.rtc = device_provider_context_.rtc;
+  serial_targets.power_press = [this]() {
+    pending_power_button_action_.store(PowerButtonAction::kShortPress);
+  };
+  serial_targets.screen_state = [this](int* lock_state, int* brightness) {
+    *lock_state = static_cast<int>(screen_lock_state_.load());
+    *brightness = current_screen_brightness_percent_.load();
+  };
   app::StartSerialCommands(serial_targets);
 
   LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
@@ -1133,8 +1164,12 @@ void Application::HandleBatteryManagementStatusUpdate(
                               ? SystemActivityReason::kChargingStarted
                               : SystemActivityReason::kChargingStopped);
   }
-  battery_depleted_pending_.store(
-      status.pack_present && status.charge_percent == 0);
+  // SurvivalOS: never on the charger (the phone cannot switch off while it is
+  // powered and would only hang), and only with the voltage to back it up: a
+  // gauge glitch must not turn a working phone off.
+  battery_depleted_pending_.store(status.pack_present && status.charge_percent == 0 &&
+      !status.charging && status.voltage_mv > 0 &&
+      status.voltage_mv < kLowBatteryStartupVoltageMv);
   if (status.ready && status.pack_present) {
     app::UpdateLowPowerForBattery(status.charge_percent, status.charging);
   }
@@ -1814,6 +1849,9 @@ void Application::RunScreenLockTask() {
   // 状态切换后丢弃触发切换的剩余触摸序列，直到确认手指释放。
   bool discard_transition_touch_until_release = false;
   hal::TouchPoint unlock_touch_start = {};
+  // SurvivalOS: a touch that went to the lock screen's music player.
+  bool player_touch_active = false;
+  hal::TouchPoint last_player_point = {};
   DoubleTapRecognizer wake_double_tap_recognizer;
   DoubleTapRecognizer sleep_double_tap_recognizer;
   while (true) {
@@ -2129,10 +2167,28 @@ void Application::RunScreenLockTask() {
       }
       if (touched) {
         ApplyScreenActivity(&last_touch_ms, &lock_screen_last_interaction_ms);
+        // SurvivalOS: the music player on the lock screen gets its touches
+        // from here (LVGL input is blocked while locked).
+        const hal::TouchPoint visual_point = RotateTouchPointToDisplay(point,
+            preferences.screen_rotation_angle, screen->ScreenWidth(), screen->ScreenHeight());
         if (!unlock_touch_active) {
           unlock_touch_start = point;
           unlock_touch_active = true;
           unlock_drag_ready = false;
+          lvgl_port_.Lock();
+          player_touch_active = ui_manager_.HandleLockScreenPlayerTouch(
+              0, visual_point.x, visual_point.y);
+          lvgl_port_.Unlock();
+          if (player_touch_active) {
+            sleep_double_tap_recognizer.Reset();
+            last_player_point = visual_point;
+          }
+        } else if (player_touch_active) {
+          lvgl_port_.Lock();
+          ui_manager_.HandleLockScreenPlayerTouch(1, visual_point.x, visual_point.y);
+          lvgl_port_.Unlock();
+          sleep_double_tap_recognizer.Reset();
+          last_player_point = visual_point;
         } else {
           const hal::TouchPoint visual_start = RotateTouchPointToDisplay(
               unlock_touch_start, preferences.screen_rotation_angle,
@@ -2152,6 +2208,18 @@ void Application::RunScreenLockTask() {
           unlock_drag_ready = IsUnlockSwipe(unlock_touch_start, point);
         }
       } else {
+        if (unlock_touch_active && player_touch_active) {
+          lvgl_port_.Lock();
+          ui_manager_.HandleLockScreenPlayerTouch(2, last_player_point.x, last_player_point.y);
+          lvgl_port_.Unlock();
+          player_touch_active = false;
+          unlock_touch_active = false;
+          unlock_drag_ready = false;
+          sleep_double_tap_recognizer.Reset();
+          lock_screen_last_interaction_ms = now_ms;
+          vTaskDelay(pdMS_TO_TICKS(kScreenTouchPollMs));
+          continue;
+        }
         if (unlock_touch_active) {
           const bool lock_screen_double_tap_to_turn_screen_off =
               preferences.lock_screen_double_tap_to_turn_screen_on_and_off &&

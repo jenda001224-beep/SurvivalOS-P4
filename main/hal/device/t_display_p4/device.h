@@ -451,6 +451,12 @@ class TDisplayP4Device final : public ScreenProvider,
   bool WriteRtcUnixTime(int64_t unix_time) override;
 
   /**
+   * @brief SurvivalOS: sets the system clock and the RTC from a GNSS fix
+   *        (UTC), when they are two seconds or more off.
+   */
+  void SyncClockFromGnss(int year, int month, int day, int hour, int minute, int second);
+
+  /**
    * @brief 读取板载及键盘扩展射频芯片的协议、频段和负载能力
    * @param capabilities 射频能力输出地址
    * @return 能力信息读取成功时返回 true

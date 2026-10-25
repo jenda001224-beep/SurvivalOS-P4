@@ -211,8 +211,13 @@ void UpdateBatteryOverview(
 
   if (status.capabilities.remaining_time) {
     char time_text[32] = {};
-    FormatDuration(
-        BatteryEstimateMinutes(status), time_text, sizeof(time_text));
+    // SurvivalOS: no estimate yet -> the charge, not "-- h -- min".
+    const int minutes = BatteryEstimateMinutes(status);
+    if (minutes > 0 && minutes < 24 * 60 * 30) {
+      FormatDuration(minutes, time_text, sizeof(time_text));
+    } else {
+      std::snprintf(time_text, sizeof(time_text), "%d %%", status.charge_percent);
+    }
     lv_label_set_text(state->battery_overview_time_label, time_text);
     lv_obj_clear_flag(state->battery_overview_time_label, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -221,7 +226,11 @@ void UpdateBatteryOverview(
   }
 
   char summary[80] = {};
-  FormatBatterySummary(status, summary, sizeof(summary));
+  hal::BatteryManagementStatus shown = status;
+  const int estimate_minutes = BatteryEstimateMinutes(status);
+  shown.capabilities.remaining_time = status.capabilities.remaining_time &&
+      estimate_minutes > 0 && estimate_minutes < 24 * 60 * 30;
+  FormatBatterySummary(shown, summary, sizeof(summary));
   lv_label_set_text(state->battery_overview_status_label, summary);
   if (state->battery_overview_status_icon_label != nullptr) {
     if (status.charging && !status.full_charged) {

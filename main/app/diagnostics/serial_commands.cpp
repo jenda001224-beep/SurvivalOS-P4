@@ -4,6 +4,8 @@
  */
 #include "app/diagnostics/serial_commands.h"
 
+#include <sys/time.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -136,6 +138,12 @@ void PrintStatus() {
       app::GetEdition() == app::Edition::kMini ? "mini" : "full",
       app::IsSetupCompleted() ? "done" : "pending");
   const app::LowPowerState low_power = app::GetLowPowerState();
+  if (g_targets.screen_state) {
+    int lock_state = -1;
+    int brightness = -1;
+    g_targets.screen_state(&lock_state, &brightness);
+    std::printf("svos: screen lock=%d brightness=%d%%\n", lock_state, brightness);
+  }
   std::printf("svos: low power %s auto=%d by_battery=%d wifi_back=%d survival=%d\n",
       low_power.enabled ? "on" : "off", low_power.auto_enable,
       low_power.enabled_automatically, low_power.restore_wifi, low_power.survival);
@@ -328,7 +336,9 @@ void PrintHelp() {
       "svos:   svos sort              file SD card downloads into place\n"
       "svos:   svos tap X Y [ms]      touch the screen\n"
       "svos:   svos swipe X1 Y1 X2 Y2 [ms]  drag a finger\n"
-      "svos:   svos shot [quality]    screenshot as base64 JPEG\n");
+      "svos:   svos shot [quality]    screenshot as base64 JPEG\n"
+      "svos:   svos time UNIX         set the clock (UTC seconds)\n"
+      "svos:   svos power             short press of the power button\n");
 }
 
 void StartCoprocessor(hal::WifiCoprocessorUpdateMode mode) {
@@ -378,8 +388,13 @@ void PrintBase64(const uint8_t* data, size_t size) {
   }
 }
 
-// Screenshot as a JPEG in base64 between two marker lines; the Mac side
-// (tools/device_shot.py) cuts it out of the console log.
+// Screenshot as JPEG strips in base64 between marker lines; the Mac side
+// (tools/devcmd.py) cuts them out of the console log and stacks them. The
+// hardware encoder garbles a whole 568x1232 frame from about 1 MB of input on,
+// and wants 4:2:0 blocks of 16x16, so the frame goes in 16-aligned strips,
+// padded to a width of a multiple of 16.
+constexpr int kShotStripRows = 304;
+
 void PrintScreenshot(int quality) {
   int width = 0;
   int height = 0;
@@ -388,19 +403,37 @@ void PrintScreenshot(int quality) {
     std::printf("svos: shot failed (no memory or display asleep)\n");
     return;
   }
-  uint8_t* jpeg = nullptr;
-  size_t jpeg_size = 0;
-  const bool ok = survival::EncodeJpegRgb565(pixels, static_cast<uint32_t>(width),
-      static_cast<uint32_t>(height), quality, &jpeg, &jpeg_size);
-  heap_caps_free(pixels);
-  if (!ok) {
-    std::printf("svos: shot encode failed\n");
+  const int padded = (width + 15) / 16 * 16;
+  auto* strip = static_cast<uint8_t*>(heap_caps_calloc(
+      static_cast<size_t>(padded) * kShotStripRows, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (strip == nullptr) {
+    heap_caps_free(pixels);
+    std::printf("svos: shot failed (no memory)\n");
     return;
   }
-  std::printf("svos-shot-begin %dx%d %u\n", width, height, static_cast<unsigned>(jpeg_size));
-  PrintBase64(jpeg, jpeg_size);
-  std::printf("svos-shot-end\n");
-  free(jpeg);
+  std::printf("svos-shot-begin %dx%d strips\n", width, height);
+  bool ok = true;
+  for (int top = 0; top < height && ok; top += kShotStripRows) {
+    const int rows = std::min(kShotStripRows, height - top);
+    const int encoded_rows = (rows + 15) / 16 * 16;
+    std::memset(strip, 0, static_cast<size_t>(padded) * kShotStripRows * 2);
+    for (int y = 0; y < rows; ++y) {
+      std::memcpy(strip + static_cast<size_t>(y) * padded * 2,
+          pixels + (static_cast<size_t>(top + y) * width) * 2, static_cast<size_t>(width) * 2);
+    }
+    uint8_t* jpeg = nullptr;
+    size_t jpeg_size = 0;
+    ok = survival::EncodeJpegRgb565(strip, static_cast<uint32_t>(padded),
+        static_cast<uint32_t>(encoded_rows), quality, &jpeg, &jpeg_size);
+    if (ok) {
+      std::printf("svos-shot-part %d %d %u\n", top, rows, static_cast<unsigned>(jpeg_size));
+      PrintBase64(jpeg, jpeg_size);
+      free(jpeg);
+    }
+  }
+  heap_caps_free(strip);
+  heap_caps_free(pixels);
+  std::printf(ok ? "svos-shot-end\n" : "svos: shot encode failed\nsvos-shot-end\n");
 }
 
 void RunCommand(char* line) {
@@ -447,6 +480,17 @@ void RunCommand(char* line) {
   } else if (std::strcmp(command, "wifi") == 0 && g_targets.wifi != nullptr &&
              std::strcmp(argument, "scan") == 0) {
     ScanWifi();
+  } else if (std::strcmp(command, "power") == 0 && g_targets.power_press) {
+    g_targets.power_press();
+    std::printf("svos: power button pressed\n");
+  } else if (std::strcmp(command, "time") == 0 && count >= 3) {
+    // Sets the clock from a computer: svos time <UTC Unix seconds>.
+    const long long unix_time = std::atoll(words[2]);
+    timeval now = {};
+    now.tv_sec = static_cast<time_t>(unix_time);
+    const bool ok = unix_time > 1700000000LL && settimeofday(&now, nullptr) == 0 &&
+        (g_targets.rtc == nullptr || g_targets.rtc->WriteRtcUnixTime(unix_time));
+    std::printf("svos: time %s\n", ok ? "set" : "not set");
   } else if (std::strcmp(command, "lowpower") == 0 &&
              (std::strcmp(argument, "on") == 0 ||
                  std::strcmp(argument, "off") == 0)) {

@@ -8,6 +8,7 @@
 #include "hal/lvgl_port.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -19,6 +20,56 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+// SurvivalOS: LVGL's memory (every widget, style, label text and glyph cache)
+// comes from PSRAM. With the C library's malloc every allocation up to 16 KB
+// went to the internal RAM first, and with a few screens open that left too
+// little for what has to be internal: DMA descriptors and bounce buffers for
+// the SD card, the JPEG engine and audio. sdkconfig: LV_USE_CUSTOM_MALLOC.
+extern "C" {
+
+void lv_mem_init(void) {}
+
+void lv_mem_deinit(void) {}
+
+lv_mem_pool_t lv_mem_add_pool(void* mem, size_t bytes) {
+  (void)mem;
+  (void)bytes;
+  return nullptr;
+}
+
+void lv_mem_remove_pool(lv_mem_pool_t pool) { (void)pool; }
+
+void* lv_malloc_core(size_t size) {
+  void* memory = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return memory != nullptr ? memory : malloc(size);
+}
+
+void* lv_realloc_core(void* pointer, size_t new_size) {
+  if (pointer == nullptr) {
+    return lv_malloc_core(new_size);
+  }
+  void* memory = heap_caps_realloc(pointer, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return memory != nullptr ? memory : realloc(pointer, new_size);
+}
+
+void lv_free_core(void* pointer) { heap_caps_free(pointer); }
+
+void lv_mem_monitor_core(lv_mem_monitor_t* monitor) {
+  if (monitor == nullptr) {
+    return;
+  }
+  lv_memzero(monitor, sizeof(*monitor));
+  monitor->total_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+  monitor->free_size = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  monitor->free_biggest_size = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+  monitor->used_pct = monitor->total_size == 0 ? 0
+      : static_cast<uint8_t>(100 - monitor->free_size * 100 / monitor->total_size);
+}
+
+lv_result_t lv_mem_test_core(void) { return LV_RESULT_OK; }
+
+}  // extern "C"
 
 namespace lilygo_box::hal {
 namespace {
@@ -264,6 +315,23 @@ bool LvglPort::ReadTouch(TouchPoint* point, bool* access_available) {
   }
 
   if (IsInputBlocked()) {
+    // SurvivalOS diagnostics: an injected touch (svos tap/swipe) reaches the
+    // lock screen too, which reads touches itself while LVGL input is blocked.
+    const int injected = injected_state_.load(std::memory_order_acquire);
+    if (injected != 0) {
+      if (access_available != nullptr) {
+        *access_available = true;
+      }
+      if (injected == 2) {
+        injected_state_.store(0, std::memory_order_release);
+        return false;
+      }
+      *point = TouchPoint();
+      point->x = static_cast<int16_t>(injected_x_.load());
+      point->y = static_cast<int16_t>(injected_y_.load());
+      point->pressure = 1;
+      return true;
+    }
     size_t point_count = 0;
     return ReadHardwareTouch(TouchReadMode::kSinglePoint, point, 1,
         &point_count, false, access_available);

@@ -16,11 +16,30 @@
 #include "audio/mp3_metadata.h"
 #include "base/logger.h"
 #include "esp_audio_dec.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "esp_audio_dec_default.h"
 #include "esp_mp3_dec.h"
 
 namespace lilygo_box::audio {
 namespace {
+
+// A PSRAM array freed on scope exit.
+template <typename T>
+class PsramBuffer {
+ public:
+  explicit PsramBuffer(size_t count)
+      : data_(count == 0 ? nullptr
+                         : static_cast<T*>(heap_caps_malloc(count * sizeof(T),
+                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT))) {}
+  ~PsramBuffer() { heap_caps_free(data_); }
+  PsramBuffer(const PsramBuffer&) = delete;
+  PsramBuffer& operator=(const PsramBuffer&) = delete;
+  T* get() const { return data_; }
+
+ private:
+  T* data_;
+};
 
 constexpr size_t kReadBufferSize = 8 * 1024;
 constexpr size_t kPcmBufferSize = 16 * 1024;
@@ -367,11 +386,21 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
     return Mp3PlaybackResult::kDecoderFailed;
   }
 
-  auto read_buffer = std::make_unique<uint8_t[]>(kReadBufferSize);
-  auto pcm_buffer = std::make_unique<uint8_t[]>(kPcmBufferSize);
-  auto stereo_buffer = metadata.channel_count == 1
-                           ? std::make_unique<int16_t[]>(kPcmBufferSize)
-                           : nullptr;
+  // SurvivalOS: the buffers live in PSRAM; as plain new[] they came from the
+  // internal RAM (allocations up to 16 KB stay internal), which playback left
+  // at a few kB free.
+  PsramBuffer<uint8_t> read_buffer(kReadBufferSize);
+  PsramBuffer<uint8_t> pcm_buffer(kPcmBufferSize);
+  PsramBuffer<int16_t> stereo_buffer(metadata.channel_count == 1 ? kPcmBufferSize : 0);
+  if (read_buffer.get() == nullptr || pcm_buffer.get() == nullptr ||
+      (metadata.channel_count == 1 && stereo_buffer.get() == nullptr)) {
+    esp_audio_dec_close(decoder);
+    fclose(file);
+    return Mp3PlaybackResult::kDecoderFailed;
+  }
+  uint32_t skipped_frames = 0;
+  int64_t decode_us = 0;
+  int64_t write_us = 0;
   size_t remaining_bytes = 0;
   uint64_t decoded_pcm_bytes = 0;
   uint64_t position_pcm_bytes = 0;
@@ -429,13 +458,24 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
           .needed_size = 0,
           .decoded_size = 0,
       };
+      const int64_t decode_started = esp_timer_get_time();
       const esp_audio_err_t result =
           esp_audio_dec_process(decoder, &input, &output_frame);
+      decode_us += esp_timer_get_time() - decode_started;
       if (result != ESP_AUDIO_ERR_OK) {
-        if (result == ESP_AUDIO_ERR_FAIL) {
-          LogMessage(LogLevel::kError, __FILE__, __LINE__,
-              "MP3 decoder process failed, remaining=%u bytes\n",
-              static_cast<unsigned int>(input.len));
+        if (result == ESP_AUDIO_ERR_FAIL && input.consumed == 0 && input.len > 4) {
+          // SurvivalOS: a damaged frame. Skip to the next frame sync instead
+          // of keeping the bytes: with a full buffer that consumed nothing,
+          // the outer loop would read nothing more and end the song early.
+          size_t skip = 1;
+          while (skip + 1 < input.len &&
+                 !(input.buffer[skip] == 0xFF && (input.buffer[skip + 1] & 0xE0) == 0xE0)) {
+            ++skip;
+          }
+          input.buffer += skip;
+          input.len -= skip;
+          ++skipped_frames;
+          continue;
         }
         break;
       }
@@ -446,13 +486,16 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
             reinterpret_cast<const int16_t*>(output_frame.buffer);
         const size_t sample_count = output_size / sizeof(int16_t);
         for (size_t index = 0; index < sample_count; ++index) {
-          stereo_buffer[index * 2] = mono_samples[index];
-          stereo_buffer[index * 2 + 1] = mono_samples[index];
+          stereo_buffer.get()[index * 2] = mono_samples[index];
+          stereo_buffer.get()[index * 2 + 1] = mono_samples[index];
         }
         output_data = reinterpret_cast<const uint8_t*>(stereo_buffer.get());
         output_size = sample_count * 2 * sizeof(int16_t);
       }
-      if (output_size > 0 && !output->Write(output_data, output_size)) {
+      const int64_t write_started = esp_timer_get_time();
+      const bool written = output_size == 0 || output->Write(output_data, output_size);
+      write_us += esp_timer_get_time() - write_started;
+      if (!written) {
         playback_result = output->WaitUntilReady()
                               ? Mp3PlaybackResult::kOutputFailed
                               : Mp3PlaybackResult::kStopped;
@@ -496,11 +539,13 @@ Mp3PlaybackResult PlayMp3File(const char* path, PcmOutput* output) {
           : LogLevel::kError;
   LogMessage(result_log_level, __FILE__, __LINE__,
       "MP3 playback finished: result=%s, elapsed=%u.%03us, "
-      "decoded_pcm=%llu bytes\n",
+      "decoded_pcm=%llu bytes, decode %lld ms, output %lld ms, skipped %u\n",
       PlaybackResultName(playback_result),
       static_cast<unsigned int>(elapsed_ms / 1000U),
       static_cast<unsigned int>(elapsed_ms % 1000U),
-      static_cast<unsigned long long>(decoded_pcm_bytes));
+      static_cast<unsigned long long>(decoded_pcm_bytes),
+      static_cast<long long>(decode_us / 1000), static_cast<long long>(write_us / 1000),
+      static_cast<unsigned int>(skipped_frames));
   return playback_result;
 }
 

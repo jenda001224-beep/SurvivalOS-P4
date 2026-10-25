@@ -119,6 +119,7 @@ struct NowPlayingCard {
   lv_obj_t* elapsed = nullptr;
   lv_obj_t* remaining = nullptr;
   lv_obj_t* play_icon = nullptr;
+  lv_obj_t* buttons[3] = {};  // previous, play/pause, next
   lv_timer_t* timer = nullptr;
   uint32_t serial = UINT32_MAX;
   bool seeking = false;
@@ -318,12 +319,103 @@ void CreateNowPlayingCard(lv_obj_t* lock_screen, const LockScreenViewOptions& op
   np.play_icon = lv_obj_get_child(play, 0);
   lv_obj_t* next = ControlButton(card, icon::kSkipNext, 1, 84);
   lv_obj_align(next, LV_ALIGN_BOTTOM_MID, 150, 0);
+  np.buttons[0] = previous;
+  np.buttons[1] = play;
+  np.buttons[2] = next;
   lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
   np.timer = lv_timer_create(UpdateNowPlaying, 400, nullptr);
   UpdateNowPlaying(nullptr);
 }
 
+// The player touch in progress: -1 none, 0..2 a button, 3 the slider.
+int g_player_touch = -1;
+
+bool InsideObject(lv_obj_t* object, int x, int y, int margin) {
+  if (object == nullptr) {
+    return false;
+  }
+  lv_area_t area;
+  lv_obj_get_coords(object, &area);
+  return x >= area.x1 - margin && x <= area.x2 + margin && y >= area.y1 - margin &&
+         y <= area.y2 + margin;
+}
+
+void SeekSliderTo(int x) {
+  NowPlayingCard& np = g_now_playing;
+  lv_area_t area;
+  lv_obj_get_coords(np.slider, &area);
+  const int width = std::max<int>(1, static_cast<int>(area.x2 - area.x1));
+  const int value = std::clamp(static_cast<int>((x - area.x1) * 1000 / width), 0, 1000);
+  lv_slider_set_value(np.slider, value, LV_ANIM_OFF);
+}
+
 }  // namespace
+
+bool HandleLockScreenPlayerTouch(
+    lv_obj_t* lock_screen, LockScreenTouchPhase phase, int x, int y) {
+  NowPlayingCard& np = g_now_playing;
+  if (lock_screen == nullptr || lock_screen != g_battery_card_owner || np.card == nullptr ||
+      lv_obj_has_flag(np.card, LV_OBJ_FLAG_HIDDEN)) {
+    g_player_touch = -1;
+    return false;
+  }
+  switch (phase) {
+    case LockScreenTouchPhase::kPress:
+      g_player_touch = -1;
+      for (int i = 0; i < 3; ++i) {
+        if (InsideObject(np.buttons[i], x, y, 10)) {
+          g_player_touch = i;
+          lv_obj_add_state(np.buttons[i], LV_STATE_PRESSED);
+          return true;
+        }
+      }
+      if (InsideObject(np.slider, x, y, 28)) {
+        g_player_touch = 3;
+        np.seeking = true;
+        SeekSliderTo(x);
+        return true;
+      }
+      return false;
+    case LockScreenTouchPhase::kMove:
+      if (g_player_touch == 3) {
+        SeekSliderTo(x);
+      } else if (g_player_touch >= 0 && !InsideObject(np.buttons[g_player_touch], x, y, 30)) {
+        lv_obj_remove_state(np.buttons[g_player_touch], LV_STATE_PRESSED);
+      }
+      return g_player_touch >= 0;
+    case LockScreenTouchPhase::kRelease: {
+      const int touch = g_player_touch;
+      g_player_touch = -1;
+      if (touch == 3) {
+        np.seeking = false;
+        MusicNowPlaying now;
+        if (GetMusicNowPlaying(&now) && now.duration_ms > 0) {
+          MusicSeekTo(static_cast<uint32_t>(
+              static_cast<uint64_t>(lv_slider_get_value(np.slider)) * now.duration_ms / 1000));
+        }
+        PlayUiHapticEffect(HapticEffect::kSelection);
+        UpdateNowPlaying(nullptr);
+        return true;
+      }
+      if (touch >= 0) {
+        const bool still_on_button = lv_obj_has_state(np.buttons[touch], LV_STATE_PRESSED);
+        lv_obj_remove_state(np.buttons[touch], LV_STATE_PRESSED);
+        if (still_on_button) {
+          if (touch == 1) {
+            MusicTogglePlayback();
+          } else {
+            MusicSkipTrack(touch == 0 ? -1 : 1);
+          }
+          PlayUiHapticEffect(HapticEffect::kSelection);
+          UpdateNowPlaying(nullptr);
+        }
+        return true;
+      }
+      return false;
+    }
+  }
+  return false;
+}
 
 lv_obj_t* CreateLockScreenView(
     lv_obj_t* parent, const LockScreenViewOptions& options) {

@@ -279,8 +279,9 @@ void RecordingTimerCallback(lv_timer_t* timer) {
   if (state->recording && state->recording_label != nullptr) {
     const unsigned int seconds = status.elapsed_ms / 1000U;
     char text[64] = {};
-    std::snprintf(text, sizeof(text), "%s  %u:%02u   %u fps   %llu MB",
-        icon::kFiberManualRecord, seconds / 60U, seconds % 60U,
+    // Plain "REC": the text font has no icon glyphs.
+    std::snprintf(text, sizeof(text), "REC  %u:%02u   %u fps   %llu MB",
+        seconds / 60U, seconds % 60U,
         static_cast<unsigned int>(status.frames_per_second),
         static_cast<unsigned long long>(status.bytes_written / 1000000ULL));
     lv_label_set_text(state->recording_label, text);

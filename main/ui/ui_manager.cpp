@@ -1370,6 +1370,11 @@ void UiManager::PlayLockScreenUnlockAnimation() {
   ::lilygo_box::ui::StartLockScreenUnlockAnimation(lock_screen_);
 }
 
+bool UiManager::HandleLockScreenPlayerTouch(int phase, int x, int y) {
+  return ::lilygo_box::ui::HandleLockScreenPlayerTouch(lock_screen_,
+      static_cast<LockScreenTouchPhase>(phase), x, y);
+}
+
 bool UiManager::ShowPowerMenu(std::function<void()> restart_callback,
     std::function<void()> power_off_callback,
     std::function<void()> dismiss_callback) {

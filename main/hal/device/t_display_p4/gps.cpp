@@ -152,6 +152,13 @@ bool TDisplayP4Device::ReadGpsStatus(GpsStatus* status) {
       next_status.date.year = zda.date.year;
     }
 
+    // SurvivalOS: a valid fix ("A") carries the exact UTC time and date;
+    // without a network it is the only way the clock gets set right.
+    if ((rmc.location_status == "A" || rmc.location_status == "D") && rmc.utc.update_flag && rmc.data.update_flag) {
+      SyncClockFromGnss(2000 + rmc.data.year, rmc.data.month, rmc.data.day, rmc.utc.hour,
+          rmc.utc.minute, static_cast<int>(rmc.utc.second));
+    }
+
     if (rmc.location.lat.update_flag &&
         rmc.location.lat.direction_update_flag) {
       next_status.latitude.ready = true;

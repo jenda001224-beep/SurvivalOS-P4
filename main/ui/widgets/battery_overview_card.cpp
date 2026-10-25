@@ -179,11 +179,19 @@ void UpdateBatteryOverviewCard(const BatteryOverviewCard& card,
     lv_obj_set_style_text_color(card.status_label, lv_color_hex(kTextColor), LV_PART_MAIN);
   }
 
+  // SurvivalOS: with no estimate yet (the gauge reports none while nothing
+  // flows, e.g. nearly full on a charger) the big number is the charge, not
+  // "-- h -- min".
+  const int minutes = status.charging ? status.time_to_full_min : status.time_to_empty_min;
+  const bool estimate = status.capabilities.remaining_time && minutes > 0 &&
+                        minutes < 24 * 60 * 30;
   if (status.capabilities.remaining_time) {
     char time_text[32] = {};
-    FormatDuration(
-        status.charging ? status.time_to_full_min : status.time_to_empty_min,
-        time_text, sizeof(time_text));
+    if (estimate) {
+      FormatDuration(minutes, time_text, sizeof(time_text));
+    } else {
+      std::snprintf(time_text, sizeof(time_text), "%d %%", status.charge_percent);
+    }
     lv_label_set_text(card.time_label, time_text);
     lv_obj_remove_flag(card.time_label, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -191,7 +199,9 @@ void UpdateBatteryOverviewCard(const BatteryOverviewCard& card,
   }
 
   char summary[80] = {};
-  FormatSummary(status, summary, sizeof(summary));
+  hal::BatteryManagementStatus shown = status;
+  shown.capabilities.remaining_time = estimate;
+  FormatSummary(shown, summary, sizeof(summary));
   lv_label_set_text(card.status_label, summary);
   if (card.status_icon_label != nullptr) {
     const bool show_bolt = status.charging && !status.full_charged;

@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <functional>
+
 #include "hal/providers/providers.h"
 
 namespace lilygo_box::hal {
@@ -24,6 +26,11 @@ struct SerialCommandTargets {
   hal::BatteryManagementProvider* battery = nullptr;
   // SurvivalOS diagnostics: touches and screenshots over the console.
   hal::LvglPort* lvgl = nullptr;
+  hal::RtcProvider* rtc = nullptr;
+  // Acts as a short press of the power button (screen off / on).
+  std::function<void()> power_press;
+  // Lock state (0 unlocked, 1 lock screen lit, 2 asleep) and brightness.
+  std::function<void(int*, int*)> screen_state;
 };
 
 /**

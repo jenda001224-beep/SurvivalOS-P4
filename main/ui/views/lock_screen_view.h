@@ -66,4 +66,18 @@ void StartLockScreenResetAnimation(lv_obj_t* lock_screen);
  */
 void StartLockScreenUnlockAnimation(lv_obj_t* lock_screen);
 
+// Phases of a touch handed to HandleLockScreenPlayerTouch().
+enum class LockScreenTouchPhase { kPress, kMove, kRelease };
+
+/**
+ * @brief SurvivalOS: a touch on the lit lock screen. The lock screen task
+ *        reads the panel itself (for the unlock swipe) and keeps LVGL's input
+ *        blocked, so the music player's buttons and slider get their touches
+ *        from here.
+ * @param x,y Point in display coordinates.
+ * @return true when the touch belongs to the player and must not unlock.
+ */
+bool HandleLockScreenPlayerTouch(
+    lv_obj_t* lock_screen, LockScreenTouchPhase phase, int x, int y);
+
 }  // namespace lilygo_box::ui

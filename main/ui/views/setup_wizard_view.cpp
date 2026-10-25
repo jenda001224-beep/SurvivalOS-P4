@@ -661,16 +661,16 @@ lv_obj_t* CreateEditionCard(WizardState* state, lv_obj_t* parent, int y,
 void BuildEdition(WizardState* state) {
   CreateTopBar(state);
   const int top = CreateHeader(state, "Choose your setup",
-      "Both have the camera, voice memos, radio and Petdoku. You can run "
-      "this setup again from Settings.");
+      "Both have First Aid, the camera, voice memos, radio and Petdoku. "
+      "You can run this setup again from Settings.");
   lv_obj_t* body = CreateBody(state, top, PrimaryButtonTop(state) - 16);
   if (body == nullptr) {
     return;
   }
   state->edition_cards[0] = CreateEditionCard(state, body, 0,
       icon::kSdStorage, "Full",
-      "With an SD card. Adds offline maps, Wikipedia, music and the file "
-      "manager. Photos go to the card.");
+      "With an SD card. Adds maps, Wikipedia, plants, the translator, music "
+      "and files. Photos go to the card.");
   state->edition_cards[1] = CreateEditionCard(state, body, 300 + 24,
       icon::kPhotoLibrary, "Mini",
       "No card needed. Photos and memos stay in the phone's own memory, "
@@ -942,7 +942,7 @@ void BuildContent(WizardState* state) {
       NatureRowClicked);
   y += kOptionRowHeight + kOptionRowGap;
   state->nature_rows[1] = CreateOptionRow(state, body, y,
-      "Plants & fungi of the whole world", kNatureBytes, NatureRowClicked);
+      "World plants & fungi", kNatureBytes, NatureRowClicked);
   CreateButton(state, "Continue", true, PrimaryClicked);
   UpdateContentStep(state);
 }

@@ -266,6 +266,13 @@ class UiManager final {
   void PlayLockScreenUnlockAnimation();
 
   /**
+   * @brief SurvivalOS: hands a lit lock screen touch to its music player.
+   * @param phase 0 press, 1 move, 2 release.
+   * @return true when the player takes the touch.
+   */
+  bool HandleLockScreenPlayerTouch(int phase, int x, int y);
+
+  /**
    * @brief 显示系统电源菜单覆盖层
    * @param restart_callback 点击重启按钮时调用的回调
    * @param power_off_callback 点击关机按钮时调用的回调
