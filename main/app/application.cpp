@@ -2309,6 +2309,15 @@ void Application::RunScreenLockTask() {
     const uint32_t sleep_confirm_ms =
         std::min(lock_timeout_ms, kScreenLockSleepConfirmMs);
     const uint32_t dim_start_ms = lock_timeout_ms - sleep_confirm_ms;
+    // SurvivalOS: a video being watched or recorded counts as activity.
+    hal::VideoRecordingStatus video_recording;
+    if (app::IsScreenKeepAwake() ||
+        (device_provider_context_.camera != nullptr &&
+            device_provider_context_.camera->ReadVideoRecordingStatus(
+                &video_recording) &&
+            video_recording.state == hal::VideoRecordingState::kRecording)) {
+      last_touch_ms = now_ms;
+    }
     const uint32_t idle_ms = now_ms - last_touch_ms;
     if (preferences.lock_timeout_seconds ==
             app::kDisplayLockTimeoutDisabledSeconds ||

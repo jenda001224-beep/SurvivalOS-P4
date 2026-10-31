@@ -19,12 +19,15 @@
 
 #include "base/logger.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "app/edition.h"
 #include "app/photo_trash.h"
+#include "app/power_saving.h"
+#include "hal/providers/audio_provider.h"
 #include "hal/providers/storage_provider.h"
 #include "survival/avi_reader.h"
 #include "survival/jpeg_image.h"
@@ -67,6 +70,13 @@ constexpr int kBackEdgeWidth = 36;
 constexpr int kZoomFactor = 3;
 constexpr int kActionBarHeight = 128;
 constexpr int kTrashNoteHeight = 74;
+// How often a playing video checks whether the next frame is due. Well below a
+// frame's length, so a frame shows at most one tick late.
+constexpr uint32_t kVideoTickMs = 20;
+constexpr int kVideoSliderRange = 1000;
+constexpr int kVideoBarHeight = 84;
+// Above the delete and restore buttons at the bottom of the viewer.
+constexpr int kVideoBarBottom = 156;
 
 enum ThumbnailState : uint8_t {
   kThumbnailNone = 0,
@@ -168,8 +178,20 @@ struct PhotosViewState {
   lv_timer_t* video_timer = nullptr;
   uint8_t* video_frame = nullptr;
   uint32_t video_frame_capacity = 0;
-  uint32_t video_position = 0;
   bool video_playing = false;
+  // Frame on screen, -1 before the first one.
+  int video_shown_frame = -1;
+  // Where playback stands while it runs without a sound clock, or is stopped.
+  uint32_t video_position_ms = 0;
+  int64_t video_clock_started_us = 0;
+  // The sound is playing and its progress is the clock the picture follows.
+  bool video_sound_running = false;
+  bool video_seeking = false;
+  hal::AudioProvider* audio = nullptr;
+  lv_obj_t* video_bar = nullptr;
+  lv_obj_t* video_play_label = nullptr;
+  lv_obj_t* video_slider = nullptr;
+  lv_obj_t* video_time = nullptr;
 
   Photo* photos = nullptr;
   size_t photo_count = 0;
@@ -574,56 +596,194 @@ void ViewerBackClickedCallback(lv_event_t* event);
 void StopVideo(PhotosViewState* state);
 
 /**
- * @brief Shows one decoded video frame in the viewer.
- * @param timer LVGL timer.
+ * @brief Where playback stands, from the sound while it plays.
+ * @param state View state.
+ * @return Position in milliseconds.
  */
-void VideoTimerCallback(lv_timer_t* timer) {
-  auto* state = static_cast<PhotosViewState*>(lv_timer_get_user_data(timer));
-  if (state == nullptr || !state->video_playing) {
-    return;
+uint32_t VideoClockMs(const PhotosViewState* state) {
+  if (state->video_sound_running && state->audio != nullptr) {
+    hal::AudioFilePlaybackStatus status;
+    if (state->audio->ReadAudioFileStatus(&status)) {
+      return status.elapsed_ms;
+    }
   }
-  if (state->video_position >= state->video.frame_count()) {
-    // Loop, which is what a short clip wants; there is no transport bar to
-    // restart it with.
-    state->video_position = 0;
+  if (state->video_playing) {
+    return state->video_position_ms + static_cast<uint32_t>(
+        (esp_timer_get_time() - state->video_clock_started_us) / 1000);
   }
+  return state->video_position_ms;
+}
 
-  uint32_t size = 0;
-  if (!state->video.ReadFrame(state->video_position, state->video_frame,
-          state->video_frame_capacity, &size)) {
-    StopVideo(state);
-    return;
+/**
+ * @brief Keeps the time and the slider on screen in step with a position.
+ * @param state View state.
+ * @param position_ms Position in milliseconds.
+ */
+void UpdateVideoProgress(PhotosViewState* state, uint32_t position_ms) {
+  const uint32_t duration_ms = state->video.duration_ms();
+  const uint32_t position = std::min(position_ms, duration_ms);
+  if (state->video_time != nullptr) {
+    const unsigned int seconds = position / 1000U;
+    const unsigned int total_seconds = duration_ms / 1000U;
+    char text[32] = {};
+    std::snprintf(text, sizeof(text), "%u:%02u / %u:%02u", seconds / 60U,
+        seconds % 60U, total_seconds / 60U, total_seconds % 60U);
+    lv_label_set_text(state->video_time, text);
   }
-  ++state->video_position;
+  if (state->video_slider != nullptr && !state->video_seeking &&
+      duration_ms > 0) {
+    lv_slider_set_value(state->video_slider,
+        static_cast<int32_t>(static_cast<uint64_t>(position) *
+            kVideoSliderRange / duration_ms),
+        LV_ANIM_OFF);
+  }
+}
+
+/**
+ * @brief Decodes one frame and puts it on screen.
+ * @param state View state.
+ * @param index Frame index.
+ * @return true when the frame could be read; one that fails to decode is
+ *         skipped rather than ending the video.
+ */
+bool ShowVideoFrame(PhotosViewState* state, uint32_t index) {
+  uint32_t size = 0;
+  if (!state->video.ReadFrame(index, state->video_frame,
+          state->video_frame_capacity, &size)) {
+    return false;
+  }
+  state->video_shown_frame = static_cast<int>(index);
 
   survival::JpegImage frame;
   if (!survival::DecodeJpegBuffer(state->video_frame, size,
           static_cast<uint32_t>(state->view_width),
           static_cast<uint32_t>(state->view_height), &frame)) {
-    return;
+    return true;
   }
+  const bool same_size = frame.width == state->viewer_photo.width &&
+      frame.height == state->viewer_photo.height;
   survival::FreeJpegImage(&state->viewer_photo);
   state->viewer_photo = frame;
   FillImageDescriptor(&state->viewer_descriptor, state->viewer_photo);
   if (state->viewer_image != nullptr) {
     lv_image_cache_drop(&state->viewer_descriptor);
     lv_image_set_src(state->viewer_image, &state->viewer_descriptor);
-    PlaceViewerImage(state, false, nullptr);
+    if (!same_size) {
+      PlaceViewerImage(state, false, nullptr);
+    }
   }
-  if (state->viewer_caption != nullptr) {
-    char caption[96] = {};
-    const uint32_t seconds = state->video_position /
-        (state->video.frames_per_second() == 0
-                ? 15
-                : state->video.frames_per_second());
-    const unsigned int total_seconds =
-        static_cast<unsigned int>(state->video.duration_ms() / 1000U);
-    std::snprintf(caption, sizeof(caption), "%s   %u:%02u / %u:%02u",
-        DisplayName(state, state->photos[state->viewer_index]),
-        static_cast<unsigned int>(seconds) / 60U,
-        static_cast<unsigned int>(seconds) % 60U, total_seconds / 60U,
-        total_seconds % 60U);
-    lv_label_set_text(state->viewer_caption, caption);
+  return true;
+}
+
+/**
+ * @brief Shows the frame that belongs to a position, if it is not up already.
+ * @param state View state.
+ * @param position_ms Position in milliseconds.
+ * @return false when the file could no longer be read.
+ */
+bool ShowVideoFrameAt(PhotosViewState* state, uint32_t position_ms) {
+  const uint32_t count = state->video.frame_count();
+  if (count == 0) {
+    return false;
+  }
+  const uint64_t wanted = static_cast<uint64_t>(position_ms) * 1000U /
+      state->video.microseconds_per_frame();
+  const uint32_t frame =
+      wanted >= count ? count - 1 : static_cast<uint32_t>(wanted);
+  if (static_cast<int>(frame) == state->video_shown_frame) {
+    return true;
+  }
+  return ShowVideoFrame(state, frame);
+}
+
+/**
+ * @brief Halts the video where it is; the frame stays on screen.
+ * @param state View state.
+ * @param position_ms Position to continue from.
+ */
+void PauseVideo(PhotosViewState* state, uint32_t position_ms) {
+  state->video_playing = false;
+  state->video_position_ms = position_ms;
+  if (state->video_sound_running && state->audio != nullptr) {
+    // Stopped rather than paused: the music app and the lock screen player
+    // treat a paused file as a song they can resume.
+    state->audio->StopAudioFile();
+  }
+  state->video_sound_running = false;
+  app::SetScreenKeepAwake(false);
+  if (state->video_play_label != nullptr) {
+    lv_label_set_text(state->video_play_label, icon::kPlayArrow);
+  }
+}
+
+/**
+ * @brief Plays the video from a position, with its sound if it has any.
+ * @param state View state.
+ * @param position_ms Position to play from.
+ */
+void PlayVideoFrom(PhotosViewState* state, uint32_t position_ms) {
+  state->video_position_ms = position_ms;
+  state->video_clock_started_us = esp_timer_get_time();
+  state->video_playing = true;
+  state->video_sound_running = false;
+  if (state->video.has_audio() && state->audio != nullptr &&
+      state->audio->StartAudioFile(state->photos[state->viewer_index].path,
+          state->video.duration_ms())) {
+    state->video_sound_running = true;
+    if (position_ms > 0) {
+      state->audio->SeekAudioFile(position_ms);
+    }
+  }
+  app::SetScreenKeepAwake(true);
+  if (state->video_play_label != nullptr) {
+    lv_label_set_text(state->video_play_label, icon::kPause);
+  }
+}
+
+/**
+ * @brief Pauses a playing video, or plays a halted one; from the start when it
+ *        had reached the end.
+ * @param state View state.
+ */
+void ToggleVideoPlayback(PhotosViewState* state) {
+  if (!state->video.IsOpen()) {
+    return;
+  }
+  PlayUiHapticEffect(HapticEffect::kImpactLight);
+  if (state->video_playing) {
+    PauseVideo(state, VideoClockMs(state));
+    return;
+  }
+  const bool at_end = state->video_position_ms >= state->video.duration_ms();
+  PlayVideoFrom(state, at_end ? 0 : state->video_position_ms);
+}
+
+/**
+ * @brief Advances the picture to wherever the clock says playback is.
+ * @param timer LVGL timer.
+ */
+void VideoTimerCallback(lv_timer_t* timer) {
+  auto* state = static_cast<PhotosViewState*>(lv_timer_get_user_data(timer));
+  if (state == nullptr || !state->video_playing || state->video_seeking) {
+    return;
+  }
+  const uint32_t duration_ms = state->video.duration_ms();
+  const uint32_t position_ms = VideoClockMs(state);
+  bool ended = position_ms >= duration_ms;
+  if (!ended && state->video_sound_running && state->audio != nullptr) {
+    hal::AudioFilePlaybackStatus status;
+    ended = state->audio->ReadAudioFileStatus(&status) &&
+        status.state != hal::AudioFilePlaybackState::kPlaying;
+  }
+  if (ended) {
+    PauseVideo(state, duration_ms);
+    UpdateVideoProgress(state, duration_ms);
+    ShowVideoFrameAt(state, duration_ms);
+    return;
+  }
+  UpdateVideoProgress(state, position_ms);
+  if (!ShowVideoFrameAt(state, position_ms)) {
+    StopVideo(state);
   }
 }
 
@@ -636,8 +796,9 @@ void StopVideo(PhotosViewState* state) {
     lv_timer_delete(state->video_timer);
     state->video_timer = nullptr;
   }
-  state->video_playing = false;
-  state->video_position = 0;
+  PauseVideo(state, 0);
+  state->video_seeking = false;
+  state->video_shown_frame = -1;
   state->video.Close();
   heap_caps_free(state->video_frame);
   state->video_frame = nullptr;
@@ -664,18 +825,139 @@ bool StartVideo(PhotosViewState* state, int index) {
     return false;
   }
 
-  const uint32_t fps = state->video.frames_per_second();
-  state->video_position = 0;
-  state->video_playing = true;
-  state->video_timer = lv_timer_create(
-      VideoTimerCallback, 1000U / (fps == 0 ? 15 : fps), state);
+  state->video_timer = lv_timer_create(VideoTimerCallback, kVideoTickMs, state);
   if (state->video_timer == nullptr) {
     StopVideo(state);
     return false;
   }
   // Draw the first frame straight away rather than after one tick.
-  VideoTimerCallback(state->video_timer);
+  if (!ShowVideoFrame(state, 0)) {
+    StopVideo(state);
+    return false;
+  }
+  if (state->video_slider != nullptr) {
+    lv_slider_set_value(state->video_slider, 0, LV_ANIM_OFF);
+  }
+  UpdateVideoProgress(state, 0);
+  PlayVideoFrom(state, 0);
   return true;
+}
+
+/**
+ * @brief Pauses, plays and seeks from the video's control bar.
+ * @param event LVGL event.
+ */
+void VideoPlayClickedCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr) {
+    ToggleVideoPlayback(state);
+  }
+}
+
+void VideoSliderCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || !state->video.IsOpen() ||
+      state->video_slider == nullptr) {
+    return;
+  }
+  const uint32_t position_ms = static_cast<uint32_t>(
+      static_cast<uint64_t>(lv_slider_get_value(state->video_slider)) *
+      state->video.duration_ms() / kVideoSliderRange);
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESSED) {
+    state->video_seeking = true;
+  } else if (code == LV_EVENT_VALUE_CHANGED) {
+    // The picture follows the finger; the sound waits for it to let go.
+    UpdateVideoProgress(state, position_ms);
+    ShowVideoFrameAt(state, position_ms);
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    state->video_seeking = false;
+    state->video_position_ms = position_ms;
+    state->video_clock_started_us = esp_timer_get_time();
+    if (state->video_sound_running && state->audio != nullptr) {
+      state->audio->SeekAudioFile(position_ms);
+    }
+    UpdateVideoProgress(state, position_ms);
+    ShowVideoFrameAt(state, position_ms);
+  }
+}
+
+/**
+ * @brief The phone was locked: a video does not play on behind the lock screen.
+ * @param state View state.
+ */
+void PauseVideoForLock(PhotosViewState* state) {
+  if (state != nullptr && state->video_playing) {
+    PauseVideo(state, VideoClockMs(state));
+  }
+}
+
+/**
+ * @brief Builds the play button, time and slider shown under a video.
+ * @param state View state.
+ */
+void CreateVideoBar(PhotosViewState* state) {
+  lv_obj_t* bar = lv_obj_create(state->viewer);
+  if (bar == nullptr) {
+    return;
+  }
+  state->video_bar = bar;
+  MakeTransparent(bar);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(bar, state->view_width, kVideoBarHeight);
+  lv_obj_align(bar, LV_ALIGN_BOTTOM_LEFT, 0, -kVideoBarBottom);
+
+  lv_obj_t* play = lv_button_create(bar);
+  if (play != nullptr) {
+    lv_obj_set_size(play, kVideoBarHeight, kVideoBarHeight);
+    lv_obj_align(play, LV_ALIGN_LEFT_MID, 24, 0);
+    lv_obj_set_style_radius(play, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(play, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(play, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(play, LV_OPA_80, LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(play, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(play, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        play, VideoPlayClickedCallback, LV_EVENT_CLICKED, state);
+    state->video_play_label = CreateLabel(play, icon::kPause, 0xFFFFFF,
+        &lvgl_font_material_symbols_fill_32);
+    if (state->video_play_label != nullptr) {
+      lv_obj_center(state->video_play_label);
+    }
+  }
+
+  constexpr int kSliderLeft = 132;
+  constexpr int kSliderRightMargin = 32;
+  state->video_time = CreateLabel(
+      bar, "", 0xFFFFFF, &lvgl_font_google_sans_flex_22);
+  if (state->video_time != nullptr) {
+    lv_obj_align(state->video_time, LV_ALIGN_TOP_LEFT, kSliderLeft, 0);
+  }
+  lv_obj_t* slider = lv_slider_create(bar);
+  if (slider != nullptr) {
+    state->video_slider = slider;
+    lv_obj_set_size(
+        slider, state->view_width - kSliderLeft - kSliderRightMargin, 8);
+    lv_obj_align(slider, LV_ALIGN_BOTTOM_LEFT, kSliderLeft, -14);
+    lv_slider_set_range(slider, 0, kVideoSliderRange);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        slider, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, 6, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, 28);
+    lv_obj_remove_flag(slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(slider, VideoSliderCallback, LV_EVENT_PRESSED, state);
+    lv_obj_add_event_cb(
+        slider, VideoSliderCallback, LV_EVENT_VALUE_CHANGED, state);
+    lv_obj_add_event_cb(slider, VideoSliderCallback, LV_EVENT_RELEASED, state);
+    lv_obj_add_event_cb(
+        slider, VideoSliderCallback, LV_EVENT_PRESS_LOST, state);
+  }
 }
 
 /**
@@ -828,6 +1110,8 @@ void OpenViewer(PhotosViewState* state, int index) {
       }
     }
 
+    CreateVideoBar(state);
+
     // Inside the viewer the back gesture closes the photo instead of the app.
     RegisterConditionalBackNavigationHandler(state->viewer, [state]() {
       if (state->delete_dialog != nullptr) {
@@ -848,7 +1132,21 @@ void OpenViewer(PhotosViewState* state, int index) {
 
   lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(state->viewer, -1);
+  if (state->video_bar != nullptr) {
+    if (video) {
+      lv_obj_remove_flag(state->video_bar, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->video_bar, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
   if (video) {
+    if (state->viewer_caption != nullptr) {
+      char caption[96] = {};
+      std::snprintf(caption, sizeof(caption), "%s  (%d/%u)",
+          DisplayName(state, state->photos[index]), index + 1,
+          static_cast<unsigned int>(state->photo_count));
+      lv_label_set_text(state->viewer_caption, caption);
+    }
     if (!StartVideo(state, index)) {
       PlayUiHapticEffect(HapticEffect::kWarning);
       CloseViewer(state);
@@ -980,6 +1278,8 @@ void ViewerPressCallback(lv_event_t* event) {
       StepViewer(state, 1);
     } else if (point.x < state->view_width / 5 && point.y > 160) {
       StepViewer(state, -1);
+    } else if (state->photos[state->viewer_index].video) {
+      ToggleVideoPlayback(state);
     }
   }
 }
@@ -1282,6 +1582,8 @@ void SetTrashMode(PhotosViewState* state, bool on) {
 void RunPhotoAction(PhotosViewState* state, PhotoAction action, bool selection) {
   const int viewer_index = state->viewer_index;
   StopVideo(state);
+  // The sound task lets go of the file after its current piece, 23 ms at most.
+  vTaskDelay(pdMS_TO_TICKS(50));
   if (!StopThumbnailWorker(state)) {
     PlayUiHapticEffect(HapticEffect::kWarning);
     return;
@@ -1750,12 +2052,20 @@ lv_obj_t* CreatePhotosView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   state->root = container;
   state->storage = config.storage;
+  state->audio = config.audio;
   state->view_width = config.width;
   state->view_height = config.height;
   state->thumbnail_size =
       (config.width - 2 * kSidePadding - (kGridColumns - 1) * kGridGap) /
       kGridColumns;
   lv_obj_add_event_cb(container, ViewDeletedCallback, LV_EVENT_DELETE, state);
+  if (config.set_lock_screen_visibility_callback) {
+    config.set_lock_screen_visibility_callback([state](bool visible) {
+      if (visible) {
+        PauseVideoForLock(state);
+      }
+    });
+  }
 
   state->title = CreateLabel(container, "Photos",
       theme::ActiveThemeColors().on_surface, &lvgl_font_google_sans_flex_36);

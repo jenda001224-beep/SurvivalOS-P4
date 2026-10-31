@@ -5,6 +5,7 @@
 #include "app/power_saving.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <utility>
@@ -32,6 +33,7 @@ constexpr uint8_t kNoDeepSleepWhenLockedBit = 1U << 5;
 constexpr uint32_t kSurvivalSleepMagic = 0x53565356;  // "SVSV"
 
 // Survives deep sleep (not a power cut), so the next start knows why it began.
+std::atomic<bool> g_screen_keep_awake{false};
 RTC_NOINIT_ATTR uint32_t g_survival_sleep_mark;
 // Set on every saved value, so that a missing key (a fresh install) and a
 // saved "everything off" can be told apart.
@@ -213,6 +215,10 @@ bool IsDeepSleepWhenLockedEnabled() {
   std::lock_guard<std::mutex> guard(g_mutex);
   return g_state.survival || g_state.deep_sleep_when_locked;
 }
+
+void SetScreenKeepAwake(bool keep_awake) { g_screen_keep_awake.store(keep_awake); }
+
+bool IsScreenKeepAwake() { return g_screen_keep_awake.load(); }
 
 void SetDeepSleepWhenLocked(bool enabled) {
   Modify([enabled](LowPowerState* state) {

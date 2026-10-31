@@ -28,6 +28,7 @@
 #include "games/petdoku_engine.h"
 #include "hal/device/common/camera_utils.h"
 #include "sdkconfig.h"
+#include "survival/avi_reader.h"
 #include "survival/jpeg_image.h"
 #include "hal/lvgl_port.h"
 
@@ -316,6 +317,61 @@ void BenchPetdoku() {
   }
 }
 
+/**
+ * @brief Prints what a video holds, and how loud its sound is per channel.
+ * @param path Absolute path of the video.
+ */
+void PrintVideoInfo(const char* path) {
+  survival::AviReader video;
+  if (!video.Open(path)) {
+    std::printf("svos: video unreadable\n");
+    return;
+  }
+  std::printf("svos: video %lu frames %lux%lu, %lu us/frame, %lu ms\n",
+      static_cast<unsigned long>(video.frame_count()),
+      static_cast<unsigned long>(video.width()),
+      static_cast<unsigned long>(video.height()),
+      static_cast<unsigned long>(video.microseconds_per_frame()),
+      static_cast<unsigned long>(video.duration_ms()));
+  if (!video.has_audio()) {
+    std::printf("svos: video has no sound\n");
+    return;
+  }
+  auto* buffer = static_cast<uint8_t*>(heap_caps_malloc(
+      video.largest_audio_chunk(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (buffer == nullptr) {
+    std::printf("svos: out of memory\n");
+    return;
+  }
+  int peak[2] = {};
+  uint64_t sum[2] = {};
+  uint64_t samples = 0;
+  for (uint32_t chunk = 0; chunk < video.audio_chunk_count(); ++chunk) {
+    uint32_t size = 0;
+    if (!video.ReadAudioChunk(chunk, buffer, video.largest_audio_chunk(), &size)) {
+      break;
+    }
+    const auto* pcm = reinterpret_cast<const int16_t*>(buffer);
+    for (uint32_t i = 0; i + 1 < size / 2; i += 2) {
+      for (int channel = 0; channel < 2; ++channel) {
+        const int value = std::abs(static_cast<int>(pcm[i + channel]));
+        peak[channel] = std::max(peak[channel], value);
+        sum[channel] += value;
+      }
+      ++samples;
+    }
+  }
+  heap_caps_free(buffer);
+  std::printf("svos: video sound %lu Hz %u ch, %llu bytes, %lu chunks; "
+              "L peak %d avg %llu, R peak %d avg %llu\n",
+      static_cast<unsigned long>(video.audio_sample_rate_hz()),
+      video.audio_channel_count(),
+      static_cast<unsigned long long>(video.audio_bytes()),
+      static_cast<unsigned long>(video.audio_chunk_count()), peak[0],
+      static_cast<unsigned long long>(samples == 0 ? 0 : sum[0] / samples), peak[1],
+      static_cast<unsigned long long>(samples == 0 ? 0 : sum[1] / samples));
+}
+
 void PrintHelp() {
   std::printf(
       "svos: commands\n"
@@ -336,6 +392,7 @@ void PrintHelp() {
       "svos:   svos setup             run the setup assistant at next start\n"
       "svos:   svos edition full|mini choose the edition\n"
       "svos:   svos sort              file SD card downloads into place\n"
+      "svos:   svos video PATH        frames, sound and its level in a video\n"
       "svos:   svos tap X Y [ms]      touch the screen\n"
       "svos:   svos swipe X1 Y1 X2 Y2 [ms]  drag a finger\n"
       "svos:   svos shot [quality]    screenshot as base64 JPEG\n"
@@ -561,6 +618,8 @@ void RunCommand(char* line) {
     ScanWifi();
   } else if (std::strcmp(command, "put") == 0 && count >= 3) {
     PutOpen(words[2]);
+  } else if (std::strcmp(command, "video") == 0 && count >= 3) {
+    PrintVideoInfo(words[2]);
   } else if (std::strcmp(command, "rm") == 0 && count >= 3) {
     std::printf("svos: rm %s\n", std::remove(words[2]) == 0 ? "done" : "failed");
   } else if (std::strcmp(command, "w") == 0 && count >= 3) {

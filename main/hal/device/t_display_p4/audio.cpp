@@ -14,13 +14,16 @@
 #include <cstring>
 #include <cstdio>
 
+#include "audio/avi_audio.h"
 #include "audio/new_notification_010_c2_b16_s44100.h"
 #include "audio/wav_decoder.h"
 #include "base/logger.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/device/common/device_utils.h"
 #include "hal/device/t_display_p4/device.h"
+#include "survival/avi_writer.h"
 
 namespace lilygo_box::hal {
 namespace device = lilygo_device_driver::t_display_p4::device;
@@ -430,11 +433,18 @@ void TDisplayP4Device::RunSpeakerPlaybackTask() {
     const size_t path_length = std::strlen(speaker_.audio_file_path);
     const bool is_wav = path_length >= 4 &&
         strcasecmp(speaker_.audio_file_path + path_length - 4, ".wav") == 0;
-    const audio::PcmPlaybackResult result = is_wav
-        ? audio::PlayWavFile(speaker_.audio_file_path, this)
-        : audio::PlayMp3File(speaker_.audio_file_path, this);
-    const bool completed = result == audio::PcmPlaybackResult::kCompleted;
-    const bool stopped = result == audio::PcmPlaybackResult::kStopped;
+    const bool is_video = path_length >= 4 &&
+        strcasecmp(speaker_.audio_file_path + path_length - 4, ".avi") == 0;
+    const audio::PcmPlaybackResult result = is_video
+        ? audio::PlayAviAudio(speaker_.audio_file_path, this)
+        : is_wav ? audio::PlayWavFile(speaker_.audio_file_path, this)
+                 : audio::PlayMp3File(speaker_.audio_file_path, this);
+    // The end of a video must not read as the end of a song: the music session
+    // would move on to the next track.
+    const bool completed =
+        result == audio::PcmPlaybackResult::kCompleted && !is_video;
+    const bool stopped = result == audio::PcmPlaybackResult::kStopped ||
+        (is_video && result == audio::PcmPlaybackResult::kCompleted);
     speaker_.paused.store(false);
     speaker_.stop_requested.store(false);
     speaker_.seek_requested.store(false);
@@ -835,6 +845,10 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
       microphone_.peak_sample.store(peak_sample);
       microphone_.level_percent.store(level_percent);
 
+      if (microphone_.video_capture.load()) {
+        PushVideoAudio(reinterpret_cast<const uint8_t*>(samples.data()), read_bytes);
+      }
+
       if (recording_file != nullptr) {
         if (std::fwrite(samples.data(), 1, read_bytes, recording_file) !=
             read_bytes) {
@@ -900,6 +914,100 @@ void TDisplayP4Device::RunMicrophoneCaptureTask() {
   microphone_.peak_sample.store(0);
   microphone_.running.store(false);
   UpdateAudioCodecOperatingMode();
+}
+
+void TDisplayP4Device::PushVideoAudio(const uint8_t* data, size_t size) {
+  VideoAudioBuffer& ring = video_.audio;
+  const size_t head = ring.head.load(std::memory_order_relaxed);
+  const size_t tail = ring.tail.load(std::memory_order_acquire);
+  const size_t used = head - tail;
+  if (ring.data == nullptr || size > VideoAudioBuffer::kBytes - used) {
+    // The card fell behind. The recorder writes the same length of silence, so
+    // the sound stays in step with the picture.
+    ring.dropped_bytes.fetch_add(size, std::memory_order_relaxed);
+    return;
+  }
+  const size_t start = head % VideoAudioBuffer::kBytes;
+  const size_t first = std::min(size, VideoAudioBuffer::kBytes - start);
+  std::memcpy(ring.data + start, data, first);
+  std::memcpy(ring.data, data + first, size - first);
+  ring.head.store(head + size, std::memory_order_release);
+}
+
+bool TDisplayP4Device::StartVideoAudio() {
+  if (microphone_.running.load()) {
+    return false;
+  }
+  // A song would be heard on the recording, and the codec can only run one rate.
+  if (speaker_.playback_kind.load() == SpeakerState::PlaybackKind::kAudioFile) {
+    StopAudioFile();
+    for (int retry = 0; retry < 100 && speaker_.running.load(); ++retry) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
+  }
+  VideoAudioBuffer& ring = video_.audio;
+  if (ring.data == nullptr) {
+    ring.data = static_cast<uint8_t*>(
+        heap_caps_malloc(VideoAudioBuffer::kBytes + VideoAudioBuffer::kChunkBytes,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    ring.chunk = ring.data == nullptr ? nullptr : ring.data + VideoAudioBuffer::kBytes;
+  }
+  if (ring.data == nullptr || speaker_.running.load() ||
+      !Configure(kSpeakerPlaybackSampleRateHz, kRecordingChannelCount,
+          kRecordingBitsPerSample)) {
+    return false;
+  }
+  ring.head.store(0);
+  ring.tail.store(0);
+  ring.dropped_bytes.store(0);
+  microphone_.video_capture.store(true);
+  if (!StartMicrophone()) {
+    microphone_.video_capture.store(false);
+    return false;
+  }
+  return true;
+}
+
+void TDisplayP4Device::StopVideoAudio() {
+  StopMicrophone();
+  for (int retry = 0; retry < 100 && microphone_.running.load(); ++retry) {
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+  microphone_.video_capture.store(false);
+}
+
+bool TDisplayP4Device::DrainVideoAudio(survival::AviWriter* writer) {
+  VideoAudioBuffer& ring = video_.audio;
+  size_t silence = ring.dropped_bytes.exchange(0, std::memory_order_relaxed);
+  if (silence > 0) {
+    std::memset(ring.chunk, 0, VideoAudioBuffer::kChunkBytes);
+    while (silence > 0) {
+      const size_t piece = std::min(silence, VideoAudioBuffer::kChunkBytes);
+      if (!writer->AddAudio(ring.chunk, static_cast<uint32_t>(piece))) {
+        return false;
+      }
+      silence -= piece;
+    }
+  }
+  while (true) {
+    const size_t tail = ring.tail.load(std::memory_order_relaxed);
+    const size_t head = ring.head.load(std::memory_order_acquire);
+    const size_t available = head - tail;
+    // Whole sample frames only, otherwise the channels would swap over.
+    const size_t piece =
+        std::min(available, VideoAudioBuffer::kChunkBytes) & ~static_cast<size_t>(3);
+    if (piece == 0) {
+      return true;
+    }
+    const size_t start = tail % VideoAudioBuffer::kBytes;
+    const size_t first = std::min(piece, VideoAudioBuffer::kBytes - start);
+    std::memcpy(ring.chunk, ring.data + start, first);
+    std::memcpy(ring.chunk + first, ring.data, piece - first);
+    ring.tail.store(tail + piece, std::memory_order_release);
+    if (!writer->AddAudio(ring.chunk, static_cast<uint32_t>(piece))) {
+      return false;
+    }
+  }
 }
 
 bool TDisplayP4Device::StartAudioRecording(const char* path) {

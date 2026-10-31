@@ -24,6 +24,10 @@
 #include "hal/usb/usb_storage_manager.h"
 #include "t_display_p4_driver.h"
 
+namespace lilygo_box::survival {
+class AviWriter;
+}  // namespace lilygo_box::survival
+
 namespace lilygo_box::hal {
 class TDisplayP4Device final : public ScreenProvider,
                                public DeviceProvider,
@@ -1416,6 +1420,8 @@ class TDisplayP4Device final : public ScreenProvider,
     std::atomic<uint32_t> recording_sample_rate_hz{0};
     // Path the capture task should open; only written while no recording runs.
     char recording_path[128] = {};
+    // SurvivalOS: the capture task also feeds the video being recorded.
+    std::atomic<bool> video_capture{false};
   };
 
   struct HeapCapsBufferDeleter {
@@ -1786,7 +1792,49 @@ class TDisplayP4Device final : public ScreenProvider,
 
   // Video recording state shared between the UI and the encoding task. The
   // task owns the file; the UI only ever flips these flags.
+  // Carries the microphone's sound from its capture task to the recorder, which
+  // is often stuck writing a frame to the card. Single producer, single consumer;
+  // head and tail only ever grow.
+  struct VideoAudioBuffer {
+    // Three seconds of 44.1 kHz stereo, longer than any stall of a working card.
+    static constexpr size_t kBytes = 512 * 1024;
+    // One chunk of a video's sound; caps what playback holds in memory at once.
+    static constexpr size_t kChunkBytes = 16 * 1024;
+    uint8_t* data = nullptr;
+    // Scratch space for one chunk, right behind the ring in the same block.
+    uint8_t* chunk = nullptr;
+    std::atomic<size_t> head{0};
+    std::atomic<size_t> tail{0};
+    std::atomic<size_t> dropped_bytes{0};
+  };
+
+  /**
+   * @brief Starts the microphone for the video being recorded.
+   * @return true when sound is being captured.
+   */
+  bool StartVideoAudio();
+
+  /**
+   * @brief Stops the microphone once the recording has ended.
+   */
+  void StopVideoAudio();
+
+  /**
+   * @brief Hands captured sound to the buffer; runs on the capture task.
+   * @param data PCM samples.
+   * @param size Number of bytes.
+   */
+  void PushVideoAudio(const uint8_t* data, size_t size);
+
+  /**
+   * @brief Moves the captured sound into the video file.
+   * @param writer Open video file.
+   * @return true when everything was written.
+   */
+  bool DrainVideoAudio(survival::AviWriter* writer);
+
   struct VideoRecordingState_ {
+    VideoAudioBuffer audio;
     std::atomic<bool> running{false};
     std::atomic<bool> stop_requested{false};
     std::atomic<bool> failed{false};

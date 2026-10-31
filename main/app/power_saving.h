@@ -139,6 +139,18 @@ void MarkSurvivalSleep();
 bool ConsumeSurvivalWake();
 
 /**
+ * @brief Keeps the screen from locking by itself, while a video plays.
+ * @param keep_awake true to hold the screen on.
+ */
+void SetScreenKeepAwake(bool keep_awake);
+
+/**
+ * @brief Whether something is holding the screen on.
+ * @return true when the auto-lock has to wait.
+ */
+bool IsScreenKeepAwake();
+
+/**
  * @brief Chooses whether the mode turns on by itself on a low battery.
  * @param enabled New setting.
  */

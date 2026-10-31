@@ -59,6 +59,10 @@ constexpr uint32_t kVideoJpegQuality = 80;
 constexpr uint32_t kVideoTargetFps = 15;
 constexpr uint32_t kVideoFramePeriodMs = 1000 / kVideoTargetFps;
 constexpr uint32_t kVideoTaskStackBytes = 6 * 1024;
+// What the microphone delivers: the same 44.1 kHz stereo as a voice memo.
+constexpr uint32_t kVideoAudioSampleRateHz = 44100;
+constexpr uint8_t kVideoAudioChannelCount = 2;
+constexpr uint8_t kVideoAudioBitsPerSample = 16;
 constexpr UBaseType_t kVideoTaskPriority = 4;
 constexpr uint32_t kCameraPowerCycleOffDelayMs =
     camera_utils::kPowerCycleOffDelayMs;
@@ -1189,10 +1193,18 @@ void TDisplayP4Device::RunVideoRecordingTask() {
       .timeout_ms = kCaptureEncodeTimeoutMs,
   };
   survival::AviWriter writer;
+  // A video without sound beats no video when the microphone is unavailable.
+  const bool with_audio = StartVideoAudio();
+  if (!with_audio) {
+    LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
+        "Recording without sound\n");
+  }
 
   if (input_buffer == nullptr || output_buffer == nullptr ||
       jpeg_new_encoder_engine(&engine_config, &encoder) != ESP_OK ||
-      !writer.Open(video_.path, info.width, info.height, kVideoTargetFps)) {
+      !writer.Open(video_.path, info.width, info.height, kVideoTargetFps,
+          with_audio ? kVideoAudioSampleRateHz : 0, kVideoAudioChannelCount,
+          kVideoAudioBitsPerSample)) {
     LogMessage(LogLevel::kError, __FILE__, __LINE__,
         "Could not start recording %s\n", video_.path);
     if (encoder != nullptr) {
@@ -1200,6 +1212,9 @@ void TDisplayP4Device::RunVideoRecordingTask() {
     }
     free(input_buffer);
     free(output_buffer);
+    if (with_audio) {
+      StopVideoAudio();
+    }
     video_.failed.store(true);
     video_.running.store(false);
     return;
@@ -1241,6 +1256,10 @@ void TDisplayP4Device::RunVideoRecordingTask() {
       }
     }
 
+    if (with_audio && !DrainVideoAudio(&writer)) {
+      break;
+    }
+
     const uint32_t elapsed =
         static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) -
         started_ms;
@@ -1251,6 +1270,23 @@ void TDisplayP4Device::RunVideoRecordingTask() {
     xTaskDelayUntil(&next_frame, pdMS_TO_TICKS(kVideoFramePeriodMs));
   }
 
+  if (with_audio) {
+    StopVideoAudio();
+    DrainVideoAudio(&writer);
+  }
+  // Frame time from the real length: of the sound when there is any, since the
+  // player follows it, otherwise of the recording.
+  const uint32_t recorded_ms = with_audio && writer.audio_duration_ms() > 0
+      ? writer.audio_duration_ms()
+      : video_.elapsed_ms.load();
+  if (writer.frame_count() > 0 && recorded_ms > 0) {
+    writer.SetMeasuredFrameTime(static_cast<uint32_t>(
+        static_cast<uint64_t>(recorded_ms) * 1000U / writer.frame_count()));
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__,
+      "Recorded %u ms of sound, %u ms of time\n",
+      static_cast<unsigned int>(writer.audio_duration_ms()),
+      static_cast<unsigned int>(video_.elapsed_ms.load()));
   const bool closed = writer.Close();
   jpeg_del_encoder_engine(encoder);
   free(input_buffer);
