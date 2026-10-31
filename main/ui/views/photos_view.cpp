@@ -8,6 +8,7 @@
 #include <strings.h>
 
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +24,7 @@
 #include "freertos/task.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "app/edition.h"
+#include "app/photo_trash.h"
 #include "hal/providers/storage_provider.h"
 #include "survival/avi_reader.h"
 #include "survival/jpeg_image.h"
@@ -61,6 +63,10 @@ constexpr TickType_t kWorkerIdleTicks = pdMS_TO_TICKS(30);
 constexpr int kSwipeDistance = 70;
 // Presses that start this close to the left edge belong to the back gesture.
 constexpr int kBackEdgeWidth = 36;
+// A double tap zooms to this many times the size that fits the screen.
+constexpr int kZoomFactor = 3;
+constexpr int kActionBarHeight = 128;
+constexpr int kTrashNoteHeight = 74;
 
 enum ThumbnailState : uint8_t {
   kThumbnailNone = 0,
@@ -78,6 +84,8 @@ struct Photo {
   lv_image_dsc_t thumbnail_descriptor = {};
   lv_obj_t* cell = nullptr;
   lv_obj_t* image = nullptr;
+  lv_obj_t* check = nullptr;  // selection mark, in Select mode
+  bool selected = false;
   // Written by the worker (None -> Working -> Ready/Failed) and by the UI
   // (Ready -> None when the thumbnail is dropped); never both on one state.
   std::atomic<uint8_t> thumbnail_state{kThumbnailNone};
@@ -93,6 +101,8 @@ struct Photo {
     thumbnail_descriptor = other.thumbnail_descriptor;
     cell = other.cell;
     image = other.image;
+    check = other.check;
+    selected = other.selected;
     thumbnail_state.store(other.thumbnail_state.load());
     return *this;
   }
@@ -122,6 +132,30 @@ struct PhotosViewState {
   lv_obj_t* viewer_image = nullptr;
   lv_obj_t* viewer_caption = nullptr;
   lv_obj_t* viewer_back = nullptr;
+  // SurvivalOS: zoom and delete. The photo sits in a pan box that scrolls
+  // when zoomed in; a double tap zooms in at that point and back out.
+  lv_obj_t* viewer_pan = nullptr;
+  lv_obj_t* viewer_delete = nullptr;
+  lv_obj_t* viewer_restore = nullptr;
+  lv_obj_t* delete_dialog = nullptr;
+  // SurvivalOS: Select and Recently Deleted.
+  bool trash_mode = false;
+  bool select_mode = false;
+  int trash_count = 0;
+  bool dialog_for_selection = false;
+  lv_obj_t* header_back = nullptr;
+  lv_obj_t* trash_button = nullptr;
+  lv_obj_t* trash_button_label = nullptr;
+  lv_obj_t* select_button = nullptr;
+  lv_obj_t* select_button_label = nullptr;
+  lv_obj_t* trash_note = nullptr;
+  lv_obj_t* action_bar = nullptr;
+  lv_obj_t* action_label = nullptr;
+  lv_obj_t* action_all = nullptr;
+  lv_obj_t* action_restore = nullptr;
+  lv_obj_t* action_delete = nullptr;
+  bool zoomed = false;
+  bool viewer_full_resolution = false;
   lv_point_t press_point = {};
   bool press_tracking = false;
   survival::JpegImage viewer_photo;
@@ -207,8 +241,30 @@ bool BuildDirectoryPath(
   if (base == nullptr) {
     return false;
   }
-  return std::snprintf(buffer, size, "%s/%s", base, kPhotoDirectory) <
+  // Recently Deleted is a folder inside the photo folder.
+  return (state->trash_mode
+             ? std::snprintf(buffer, size, "%s/%s/%s", base, kPhotoDirectory,
+                   app::kPhotoTrashDirectory)
+             : std::snprintf(buffer, size, "%s/%s", base, kPhotoDirectory)) <
       static_cast<int>(size);
+}
+
+// The photo folder itself, whichever list is on screen.
+bool BuildPhotoDirectoryPath(
+    const PhotosViewState* state, char* buffer, size_t size) {
+  const char* base = app::MediaBasePath(state->storage, false, nullptr);
+  return base != nullptr &&
+      std::snprintf(buffer, size, "%s/%s", base, kPhotoDirectory) < static_cast<int>(size);
+}
+
+// What the photo is called on screen: without the deletion time in the trash.
+const char* DisplayName(const PhotosViewState* state, const Photo& photo) {
+  return state->trash_mode ? app::OriginalPhotoName(photo.name) : photo.name;
+}
+
+const char* FileName(const Photo& photo) {
+  const char* slash = std::strrchr(photo.path, '/');
+  return slash != nullptr ? slash + 1 : photo.path;
 }
 
 /**
@@ -251,10 +307,18 @@ void ScanPhotos(PhotosViewState* state) {
   }
   closedir(handle);
 
-  // Capture names sort chronologically, so reverse order is newest first.
+  // Capture names hold the time (IMG_20261031-080925.jpg, VID_...), so past
+  // the prefix they sort chronologically and in reverse newest first. Without
+  // skipping it every video would come before every photo.
+  const auto time_part = [](const char* name) {
+    while (*name != '\0' && (*name < '0' || *name > '9')) {
+      ++name;
+    }
+    return name;
+  };
   std::sort(state->photos, state->photos + state->photo_count,
-      [](const Photo& left, const Photo& right) {
-        return std::strcmp(left.name, right.name) > 0;
+      [&time_part](const Photo& left, const Photo& right) {
+        return std::strcmp(time_part(left.name), time_part(right.name)) > 0;
       });
 }
 
@@ -450,8 +514,11 @@ void StartThumbnailWorker(PhotosViewState* state) {
   const char* base = app::MediaBasePath(state->storage, false, &on_card);
   // Internal memory is too small to spend on a cache.
   state->cache_on_card = on_card && base != nullptr &&
-      std::snprintf(directory, sizeof(directory), "%s/%s/%s", base,
-          kPhotoDirectory, kThumbnailCacheDirectory) < static_cast<int>(sizeof(directory));
+      (state->trash_mode
+              ? std::snprintf(directory, sizeof(directory), "%s/%s/%s/%s", base, kPhotoDirectory,
+                    app::kPhotoTrashDirectory, kThumbnailCacheDirectory)
+              : std::snprintf(directory, sizeof(directory), "%s/%s/%s", base, kPhotoDirectory,
+                    kThumbnailCacheDirectory)) < static_cast<int>(sizeof(directory));
   if (state->cache_on_card) {
     mkdir(directory, 0775);
     std::snprintf(state->cache_directory, sizeof(state->cache_directory), "%s",
@@ -495,6 +562,14 @@ bool StopThumbnailWorker(PhotosViewState* state) {
 
 void CloseViewer(PhotosViewState* state);
 void ViewerPressCallback(lv_event_t* event);
+void ViewerDoubleClickedCallback(lv_event_t* event);
+void ViewerDeleteClickedCallback(lv_event_t* event);
+void PlaceViewerImage(PhotosViewState* state, bool zoomed, const lv_point_t* at);
+void RebuildGrid(PhotosViewState* state);
+void UpdateThumbnails(PhotosViewState* state);
+void ViewerRestoreClickedCallback(lv_event_t* event);
+void CloseDeleteDialog(PhotosViewState* state);
+void ToggleSelection(PhotosViewState* state, int index);
 void ViewerBackClickedCallback(lv_event_t* event);
 void StopVideo(PhotosViewState* state);
 
@@ -531,8 +606,9 @@ void VideoTimerCallback(lv_timer_t* timer) {
   state->viewer_photo = frame;
   FillImageDescriptor(&state->viewer_descriptor, state->viewer_photo);
   if (state->viewer_image != nullptr) {
+    lv_image_cache_drop(&state->viewer_descriptor);
     lv_image_set_src(state->viewer_image, &state->viewer_descriptor);
-    lv_obj_center(state->viewer_image);
+    PlaceViewerImage(state, false, nullptr);
   }
   if (state->viewer_caption != nullptr) {
     char caption[96] = {};
@@ -543,7 +619,7 @@ void VideoTimerCallback(lv_timer_t* timer) {
     const unsigned int total_seconds =
         static_cast<unsigned int>(state->video.duration_ms() / 1000U);
     std::snprintf(caption, sizeof(caption), "%s   %u:%02u / %u:%02u",
-        state->photos[state->viewer_index].name,
+        DisplayName(state, state->photos[state->viewer_index]),
         static_cast<unsigned int>(seconds) / 60U,
         static_cast<unsigned int>(seconds) % 60U, total_seconds / 60U,
         total_seconds % 60U);
@@ -613,7 +689,13 @@ void OpenViewer(PhotosViewState* state, int index) {
   }
   StopVideo(state);
   const bool video = state->photos[index].video;
+  state->zoomed = false;
+  state->viewer_full_resolution = false;
   if (!video) {
+    if (state->viewer_image != nullptr) {
+      lv_image_set_src(state->viewer_image, nullptr);
+    }
+    lv_image_cache_drop(&state->viewer_descriptor);
     survival::FreeJpegImage(&state->viewer_photo);
     if (!survival::LoadJpegImage(state->photos[index].path,
             static_cast<uint32_t>(state->view_width),
@@ -644,9 +726,26 @@ void OpenViewer(PhotosViewState* state, int index) {
         state->viewer, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(state->viewer, LV_OPA_COVER, LV_PART_MAIN);
 
-    state->viewer_image = lv_image_create(state->viewer);
+    state->viewer_pan = lv_obj_create(state->viewer);
+    if (state->viewer_pan == nullptr) {
+      return;
+    }
+    lv_obj_set_size(state->viewer_pan, state->view_width, state->view_height);
+    lv_obj_set_pos(state->viewer_pan, 0, 0);
+    lv_obj_set_style_bg_opa(state->viewer_pan, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(state->viewer_pan, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(state->viewer_pan, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(state->viewer_pan, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(state->viewer_pan, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(state->viewer_pan, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_remove_flag(state->viewer_pan, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(state->viewer_pan, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_set_scroll_dir(state->viewer_pan, LV_DIR_ALL);
+    lv_obj_set_scrollbar_mode(state->viewer_pan, LV_SCROLLBAR_MODE_OFF);
+    state->viewer_image = lv_image_create(state->viewer_pan);
     if (state->viewer_image != nullptr) {
-      lv_obj_center(state->viewer_image);
+      lv_obj_remove_flag(state->viewer_image, LV_OBJ_FLAG_CLICKABLE);
+      lv_image_set_inner_align(state->viewer_image, LV_IMAGE_ALIGN_STRETCH);
     }
     state->viewer_caption =
         CreateLabel(state->viewer, "", 0xFFFFFF,
@@ -661,11 +760,13 @@ void OpenViewer(PhotosViewState* state, int index) {
     lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_SCROLL_CHAIN);
     lv_obj_add_event_cb(
-        state->viewer, ViewerPressCallback, LV_EVENT_PRESSED, state);
+        state->viewer_pan, ViewerPressCallback, LV_EVENT_PRESSED, state);
     lv_obj_add_event_cb(
-        state->viewer, ViewerPressCallback, LV_EVENT_RELEASED, state);
+        state->viewer_pan, ViewerPressCallback, LV_EVENT_RELEASED, state);
     lv_obj_add_event_cb(
-        state->viewer, ViewerPressCallback, LV_EVENT_PRESS_LOST, state);
+        state->viewer_pan, ViewerPressCallback, LV_EVENT_PRESS_LOST, state);
+    lv_obj_add_event_cb(state->viewer_pan, ViewerDoubleClickedCallback,
+        LV_EVENT_DOUBLE_CLICKED, state);
 
     // A visible way back to the grid, next to the back gesture.
     state->viewer_back = lv_button_create(state->viewer);
@@ -688,11 +789,61 @@ void OpenViewer(PhotosViewState* state, int index) {
       }
     }
 
+    state->viewer_delete = lv_button_create(state->viewer);
+    if (state->viewer_delete != nullptr) {
+      lv_obj_set_size(state->viewer_delete, 84, 84);
+      lv_obj_align(state->viewer_delete, LV_ALIGN_BOTTOM_RIGHT, -24, -48);
+      lv_obj_set_style_radius(state->viewer_delete, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(
+          state->viewer_delete, lv_color_hex(0x000000), LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_delete, LV_OPA_50, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_delete, LV_OPA_80, LV_STATE_PRESSED);
+      lv_obj_set_style_shadow_width(state->viewer_delete, 0, LV_PART_MAIN);
+      lv_obj_set_style_border_width(state->viewer_delete, 0, LV_PART_MAIN);
+      lv_obj_add_event_cb(state->viewer_delete, ViewerDeleteClickedCallback,
+          LV_EVENT_CLICKED, state);
+      lv_obj_t* bin = CreateLabel(state->viewer_delete, icon::kDelete,
+          0xFFFFFF, &lvgl_font_material_symbols_fill_32);
+      if (bin != nullptr) {
+        lv_obj_center(bin);
+      }
+    }
+
+    state->viewer_restore = lv_button_create(state->viewer);
+    if (state->viewer_restore != nullptr) {
+      lv_obj_set_size(state->viewer_restore, 170, 84);
+      lv_obj_align(state->viewer_restore, LV_ALIGN_BOTTOM_LEFT, 24, -48);
+      lv_obj_set_style_radius(state->viewer_restore, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(
+          state->viewer_restore, lv_color_hex(0x000000), LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_restore, LV_OPA_50, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(state->viewer_restore, LV_OPA_80, LV_STATE_PRESSED);
+      lv_obj_set_style_shadow_width(state->viewer_restore, 0, LV_PART_MAIN);
+      lv_obj_add_event_cb(state->viewer_restore, ViewerRestoreClickedCallback,
+          LV_EVENT_CLICKED, state);
+      lv_obj_t* text = CreateLabel(state->viewer_restore, "Restore", 0xFFFFFF,
+          &lvgl_font_google_sans_flex_28);
+      if (text != nullptr) {
+        lv_obj_center(text);
+      }
+    }
+
     // Inside the viewer the back gesture closes the photo instead of the app.
     RegisterConditionalBackNavigationHandler(state->viewer, [state]() {
-      CloseViewer(state);
+      if (state->delete_dialog != nullptr) {
+        CloseDeleteDialog(state);
+      } else {
+        CloseViewer(state);
+      }
       return true;
     });
+  }
+  if (state->viewer_restore != nullptr) {
+    if (state->trash_mode) {
+      lv_obj_remove_flag(state->viewer_restore, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->viewer_restore, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 
   lv_obj_remove_flag(state->viewer, LV_OBJ_FLAG_HIDDEN);
@@ -706,13 +857,14 @@ void OpenViewer(PhotosViewState* state, int index) {
   }
 
   if (state->viewer_image != nullptr) {
+    lv_image_cache_drop(&state->viewer_descriptor);
     lv_image_set_src(state->viewer_image, &state->viewer_descriptor);
-    lv_obj_center(state->viewer_image);
+    PlaceViewerImage(state, false, nullptr);
   }
   if (state->viewer_caption != nullptr) {
     char caption[96] = {};
     std::snprintf(caption, sizeof(caption), "%s   %ux%u  (%d/%u)",
-        state->photos[index].name,
+        DisplayName(state, state->photos[index]),
         static_cast<unsigned int>(state->viewer_photo.source_width),
         static_cast<unsigned int>(state->viewer_photo.source_height),
         index + 1, static_cast<unsigned int>(state->photo_count));
@@ -727,6 +879,11 @@ void OpenViewer(PhotosViewState* state, int index) {
  * @param state View state.
  */
 void CloseViewer(PhotosViewState* state) {
+  if (state->delete_dialog != nullptr) {
+    lv_obj_delete(state->delete_dialog);
+    state->delete_dialog = nullptr;
+  }
+  state->zoomed = false;
   StopVideo(state);
   if (state->viewer != nullptr) {
     lv_obj_add_flag(state->viewer, LV_OBJ_FLAG_HIDDEN);
@@ -750,6 +907,10 @@ void CellClickedCallback(lv_event_t* event) {
   }
   const int index =
       static_cast<int>(reinterpret_cast<intptr_t>(lv_obj_get_user_data(cell)));
+  if (state->select_mode) {
+    ToggleSelection(state, index);
+    return;
+  }
   PlayUiHapticEffect(HapticEffect::kImpactLight);
   OpenViewer(state, index);
 }
@@ -801,6 +962,9 @@ void ViewerPressCallback(lv_event_t* event) {
   if (code == LV_EVENT_PRESS_LOST) {
     return;
   }
+  if (state->zoomed) {
+    return;  // dragging moves the zoomed photo
+  }
   const int dx = point.x - state->press_point.x;
   const int dy = point.y - state->press_point.y;
   const int adx = dx < 0 ? -dx : dx;
@@ -821,6 +985,582 @@ void ViewerPressCallback(lv_event_t* event) {
 }
 
 /**
+ * @brief Sizes the photo to fit the screen, or kZoomFactor times that with the
+ *        tapped point kept under the finger.
+ */
+void PlaceViewerImage(PhotosViewState* state, bool zoomed, const lv_point_t* at) {
+  lv_obj_t* image = state->viewer_image;
+  lv_obj_t* pan = state->viewer_pan;
+  if (image == nullptr || pan == nullptr) {
+    return;
+  }
+  const survival::JpegImage& photo = state->viewer_photo;
+  const int width = std::max<int>(1, photo.width);
+  const int height = std::max<int>(1, photo.height);
+  // Fit inside the screen, never larger than the decoded photo.
+  int fit_width = width;
+  int fit_height = height;
+  if (fit_width > state->view_width) {
+    fit_height = fit_height * state->view_width / fit_width;
+    fit_width = state->view_width;
+  }
+  if (fit_height > state->view_height) {
+    fit_width = fit_width * state->view_height / fit_height;
+    fit_height = state->view_height;
+  }
+  const int old_width = zoomed ? fit_width : lv_obj_get_width(image);
+  const int old_height = zoomed ? fit_height : lv_obj_get_height(image);
+  const int old_x = std::max(0, (state->view_width - old_width) / 2);
+  const int old_y = std::max(0, (state->view_height - old_height) / 2);
+  const int new_width = zoomed ? fit_width * kZoomFactor : fit_width;
+  const int new_height = zoomed ? fit_height * kZoomFactor : fit_height;
+  const int new_x = std::max(0, (state->view_width - new_width) / 2);
+  const int new_y = std::max(0, (state->view_height - new_height) / 2);
+  state->zoomed = zoomed;
+  lv_obj_scroll_to(pan, 0, 0, LV_ANIM_OFF);
+  lv_obj_set_size(image, new_width, new_height);
+  // Top-left alignment: with the centre alignment from before, the position
+  // would be added to the centring and push the photo off screen.
+  lv_obj_align(image, LV_ALIGN_TOP_LEFT, new_x, new_y);
+  if (!zoomed) {
+    lv_obj_remove_flag(pan, LV_OBJ_FLAG_SCROLLABLE);
+    return;
+  }
+  lv_obj_add_flag(pan, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_update_layout(pan);
+  const int tap_x = at != nullptr ? at->x : state->view_width / 2;
+  const int tap_y = at != nullptr ? at->y : state->view_height / 2;
+  const int image_x = std::clamp(tap_x - old_x, 0, fit_width) * kZoomFactor;
+  const int image_y = std::clamp(tap_y - old_y, 0, fit_height) * kZoomFactor;
+  const int scroll_x = std::clamp(new_x + image_x - tap_x, 0,
+      std::max(0, new_width - state->view_width));
+  const int scroll_y = std::clamp(new_y + image_y - tap_y, 0,
+      std::max(0, new_height - state->view_height));
+  lv_obj_scroll_to(pan, scroll_x, scroll_y, LV_ANIM_OFF);
+}
+
+void ViewerDoubleClickedCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state == nullptr || state->viewer_index < 0 ||
+      state->photos[state->viewer_index].video) {
+    return;
+  }
+  lv_point_t point = {};
+  lv_indev_t* indev = lv_indev_active();
+  if (indev != nullptr) {
+    lv_indev_get_point(indev, &point);
+    lv_area_t area;
+    lv_obj_get_coords(state->viewer_pan, &area);
+    point.x -= area.x1;
+    point.y -= area.y1;
+  }
+  const bool zoom_in = !state->zoomed;
+  if (zoom_in && !state->viewer_full_resolution) {
+    // The viewer shows the photo decoded for the screen; for zooming in,
+    // decode it again with twice as many pixels each way.
+    survival::JpegImage sharper;
+    const Photo& photo = state->photos[state->viewer_index];
+    if (survival::LoadJpegImage(photo.path, static_cast<uint32_t>(state->view_width) * 2,
+            static_cast<uint32_t>(state->view_height) * 2, &sharper)) {
+      // The tapped point is mapped against the old size, so measure first.
+      lv_image_set_src(state->viewer_image, nullptr);
+      lv_image_cache_drop(&state->viewer_descriptor);
+      survival::FreeJpegImage(&state->viewer_photo);
+      state->viewer_photo = sharper;
+      FillImageDescriptor(&state->viewer_descriptor, state->viewer_photo);
+      lv_image_set_src(state->viewer_image, &state->viewer_descriptor);
+    }
+    state->viewer_full_resolution = true;
+  }
+  PlayUiHapticEffect(HapticEffect::kImpactLight);
+  PlaceViewerImage(state, zoom_in, indev != nullptr ? &point : nullptr);
+}
+
+void CloseDeleteDialog(PhotosViewState* state) {
+  if (state->delete_dialog != nullptr) {
+    lv_obj_delete_async(state->delete_dialog);
+    state->delete_dialog = nullptr;
+  }
+}
+
+enum class PhotoAction { kTrash, kDeleteForever, kRestore };
+
+void SetSelectMode(PhotosViewState* state, bool on);
+
+/**
+ * @brief Reads the list again after files moved. The worker must be stopped.
+ */
+void ReloadList(PhotosViewState* state) {
+  if (state->grid != nullptr) {
+    lv_obj_clean(state->grid);
+  }
+  for (size_t i = 0; i < state->photo_count; ++i) {
+    Photo& photo = state->photos[i];
+    photo.cell = nullptr;
+    photo.image = nullptr;
+    photo.check = nullptr;
+    photo.selected = false;
+  }
+  lv_image_cache_drop(nullptr);
+  ReleaseThumbnails(state);
+  ScanPhotos(state);
+  char directory[kMaxPathLength] = {};
+  state->trash_count = BuildPhotoDirectoryPath(state, directory, sizeof(directory))
+      ? app::CountTrashedPhotos(directory) : 0;
+  RebuildGrid(state);
+  lv_obj_update_layout(state->root);
+  UpdateThumbnails(state);
+  StartThumbnailWorker(state);
+}
+
+void UpdateHeader(PhotosViewState* state) {
+  auto show = [](lv_obj_t* object, bool visible) {
+    if (object == nullptr) {
+      return;
+    }
+    if (visible) {
+      lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
+    }
+  };
+  if (state->title != nullptr) {
+    lv_label_set_text(state->title, state->trash_mode ? "Recently Deleted" : "Photos");
+    lv_obj_align(state->title, LV_ALIGN_TOP_LEFT,
+        state->trash_mode ? 88 : kSidePadding + 8, kHeaderHeight - 56);
+  }
+  show(state->header_back, state->trash_mode);
+  show(state->trash_note, state->trash_mode);
+  show(state->trash_button, !state->trash_mode && !state->select_mode && state->trash_count > 0);
+  show(state->select_button, state->photo_count > 0);
+  if (state->trash_button_label != nullptr) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "%d", state->trash_count);
+    lv_label_set_text(state->trash_button_label, text);
+  }
+  if (state->select_button_label != nullptr) {
+    lv_label_set_text(state->select_button_label, state->select_mode ? "Cancel" : "Select");
+  }
+  show(state->action_bar, state->select_mode);
+  show(state->action_restore, state->select_mode && state->trash_mode);
+  if (state->grid != nullptr) {
+    const int top = kHeaderHeight + (state->trash_mode ? kTrashNoteHeight : 0);
+    lv_obj_set_pos(state->grid, kSidePadding, top);
+    lv_obj_set_height(state->grid,
+        state->view_height - top - (state->select_mode ? kActionBarHeight : 0));
+  }
+}
+
+int SelectedCount(const PhotosViewState* state) {
+  int count = 0;
+  for (size_t i = 0; i < state->photo_count; ++i) {
+    count += state->photos[i].selected ? 1 : 0;
+  }
+  return count;
+}
+
+void UpdateActionBar(PhotosViewState* state) {
+  const int count = SelectedCount(state);
+  if (state->action_label != nullptr) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%d selected", count);
+    lv_label_set_text(state->action_label, text);
+  }
+  if (state->action_all != nullptr) {
+    lv_label_set_text(lv_obj_get_child(state->action_all, 0),
+        count == static_cast<int>(state->photo_count) ? "None" : "All");
+  }
+  for (lv_obj_t* button : {state->action_delete, state->action_restore}) {
+    if (button == nullptr) {
+      continue;
+    }
+    if (count > 0) {
+      lv_obj_remove_state(button, LV_STATE_DISABLED);
+    } else {
+      lv_obj_add_state(button, LV_STATE_DISABLED);
+    }
+    lv_obj_set_style_opa(button, count > 0 ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
+  }
+}
+
+void StyleCheck(lv_obj_t* check, bool selected) {
+  lv_obj_set_style_bg_color(check, lv_color_hex(0x0A84FF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(check, selected ? LV_OPA_COVER : LV_OPA_30, LV_PART_MAIN);
+  lv_obj_t* mark = lv_obj_get_child(check, 0);
+  if (mark != nullptr) {
+    if (selected) {
+      lv_obj_remove_flag(mark, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(mark, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+void CreateCheck(Photo* photo) {
+  if (photo->cell == nullptr || photo->check != nullptr) {
+    return;
+  }
+  lv_obj_t* check = lv_obj_create(photo->cell);
+  lv_obj_remove_flag(check, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(check, 44, 44);
+  lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -8, 8);
+  lv_obj_set_style_radius(check, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(check, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(check, 3, LV_PART_MAIN);
+  lv_obj_set_style_border_color(check, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_t* mark = CreateLabel(check, icon::kCheck, 0xFFFFFF,
+      &lvgl_font_material_symbols_fill_32);
+  if (mark != nullptr) {
+    lv_obj_center(mark);
+  }
+  photo->check = check;
+  StyleCheck(check, photo->selected);
+}
+
+void SetSelectMode(PhotosViewState* state, bool on) {
+  state->select_mode = on;
+  for (size_t i = 0; i < state->photo_count; ++i) {
+    Photo& photo = state->photos[i];
+    photo.selected = false;
+    if (on) {
+      CreateCheck(&photo);
+      if (photo.check != nullptr) {
+        StyleCheck(photo.check, false);
+      }
+    } else if (photo.check != nullptr) {
+      lv_obj_delete(photo.check);
+      photo.check = nullptr;
+    }
+  }
+  UpdateHeader(state);
+  UpdateActionBar(state);
+}
+
+void ToggleSelection(PhotosViewState* state, int index) {
+  if (index < 0 || index >= static_cast<int>(state->photo_count)) {
+    return;
+  }
+  Photo& photo = state->photos[index];
+  photo.selected = !photo.selected;
+  if (photo.check != nullptr) {
+    StyleCheck(photo.check, photo.selected);
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  UpdateActionBar(state);
+}
+
+void SetTrashMode(PhotosViewState* state, bool on) {
+  if (!StopThumbnailWorker(state)) {
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    return;
+  }
+  state->select_mode = false;
+  // Forget the old list's cells before the folder changes under them.
+  ReleaseThumbnails(state);
+  if (state->grid != nullptr) {
+    lv_obj_clean(state->grid);
+  }
+  for (size_t i = 0; i < state->photo_count; ++i) {
+    state->photos[i].cell = nullptr;
+    state->photos[i].image = nullptr;
+    state->photos[i].check = nullptr;
+    state->photos[i].selected = false;
+  }
+  state->photo_count = 0;
+  state->trash_mode = on;
+  ReloadList(state);
+  if (state->grid != nullptr) {
+    lv_obj_scroll_to_y(state->grid, 0, LV_ANIM_OFF);
+  }
+  UpdateHeader(state);
+}
+
+/**
+ * @brief Moves, restores or deletes the photo on screen or the selected ones.
+ */
+void RunPhotoAction(PhotosViewState* state, PhotoAction action, bool selection) {
+  const int viewer_index = state->viewer_index;
+  StopVideo(state);
+  if (!StopThumbnailWorker(state)) {
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    return;
+  }
+  char directory[kMaxPathLength] = {};
+  if (!BuildPhotoDirectoryPath(state, directory, sizeof(directory))) {
+    StartThumbnailWorker(state);
+    PlayUiHapticEffect(HapticEffect::kWarning);
+    return;
+  }
+  int done = 0;
+  int failed = 0;
+  auto apply = [&](const Photo& photo) {
+    const char* name = FileName(photo);
+    const bool ok = action == PhotoAction::kTrash ? app::MovePhotoToTrash(directory, name)
+        : action == PhotoAction::kRestore ? app::RestorePhotoFromTrash(directory, name)
+                                          : app::DeleteTrashedPhoto(directory, name);
+    (ok ? done : failed) += 1;
+  };
+  if (selection) {
+    for (size_t i = 0; i < state->photo_count; ++i) {
+      if (state->photos[i].selected) {
+        apply(state->photos[i]);
+      }
+    }
+  } else if (viewer_index >= 0 && viewer_index < static_cast<int>(state->photo_count)) {
+    apply(state->photos[viewer_index]);
+  }
+  LogMessage(LogLevel::kInfo, __FILE__, __LINE__, "Photos: %d done, %d failed\n", done, failed);
+  state->select_mode = false;
+  ReloadList(state);
+  UpdateHeader(state);
+  UpdateActionBar(state);
+  PlayUiHapticEffect(failed > 0 ? HapticEffect::kWarning : HapticEffect::kImpactLight);
+  if (!selection && viewer_index >= 0) {
+    if (state->photo_count == 0) {
+      CloseViewer(state);
+    } else {
+      OpenViewer(state, std::min(viewer_index, static_cast<int>(state->photo_count) - 1));
+    }
+  }
+}
+
+void DeleteDialogButtonCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  lv_obj_t* button = lv_event_get_current_target_obj(event);
+  if (state == nullptr || button == nullptr) {
+    return;
+  }
+  const bool confirmed = lv_obj_get_user_data(button) != nullptr;
+  const bool selection = state->dialog_for_selection;
+  CloseDeleteDialog(state);
+  if (confirmed) {
+    RunPhotoAction(state, state->trash_mode ? PhotoAction::kDeleteForever : PhotoAction::kTrash,
+        selection);
+  } else {
+    PlayUiHapticEffect(HapticEffect::kSelection);
+  }
+}
+
+lv_obj_t* DialogButton(lv_obj_t* parent, PhotosViewState* state, const char* text,
+    uint32_t color, bool confirm) {
+  lv_obj_t* button = lv_button_create(parent);
+  lv_obj_set_size(button, 220, 84);
+  lv_obj_set_style_radius(button, 42, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button, lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_set_user_data(button, confirm ? state : nullptr);
+  lv_obj_add_event_cb(button, DeleteDialogButtonCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* label = CreateLabel(button, text, 0xFFFFFF, &lvgl_font_google_sans_flex_28);
+  if (label != nullptr) {
+    lv_obj_center(label);
+  }
+  return button;
+}
+
+/**
+ * @brief Asks before deleting: outside the trash the photos can still come
+ *        back, inside it they are gone for good.
+ */
+void ShowDeleteDialog(PhotosViewState* state, bool selection) {
+  if (state->delete_dialog != nullptr) {
+    return;
+  }
+  const int count = selection ? SelectedCount(state) : 1;
+  if (count == 0) {
+    return;
+  }
+  state->dialog_for_selection = selection;
+  PlayUiHapticEffect(HapticEffect::kImpactLight);
+  // A scrim over everything takes every touch while the question is open.
+  lv_obj_t* scrim = lv_obj_create(state->root);
+  state->delete_dialog = scrim;
+  lv_obj_remove_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(scrim, state->view_width, state->view_height);
+  lv_obj_set_pos(scrim, 0, 0);
+  lv_obj_set_style_radius(scrim, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(scrim, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(scrim, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(scrim, LV_OPA_60, LV_PART_MAIN);
+
+  lv_obj_t* card = lv_obj_create(scrim);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(card, state->view_width - 64, LV_SIZE_CONTENT);
+  lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_radius(card, 32, LV_PART_MAIN);
+  lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x1C1C1E), LV_PART_MAIN);
+  lv_obj_set_style_pad_all(card, 28, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(card, 18, LV_PART_MAIN);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  char title[48];
+  if (count > 1) {
+    std::snprintf(title, sizeof(title), "Delete %d items%s", count,
+        state->trash_mode ? " forever?" : "?");
+  } else {
+    std::snprintf(title, sizeof(title), "%s",
+        state->trash_mode ? "Delete forever?" : "Delete this photo?");
+  }
+  CreateLabel(card, title, 0xFFFFFF, &lvgl_font_google_sans_flex_32);
+  lv_obj_t* note = CreateLabel(card,
+      state->trash_mode ? "This cannot be undone."
+      : count > 1       ? "They move to Recently Deleted."
+                        : "It moves to Recently Deleted.",
+      0xAEAEB2, &lvgl_font_google_sans_flex_24);
+  if (note != nullptr) {
+    lv_obj_set_width(note, state->view_width - 120);
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  }
+  lv_obj_t* buttons = lv_obj_create(card);
+  lv_obj_remove_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(buttons, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(buttons, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(buttons, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(buttons, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_top(buttons, 10, LV_PART_MAIN);
+  lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(buttons, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
+      LV_FLEX_ALIGN_CENTER);
+  DialogButton(buttons, state, "Cancel", 0x3A3A3C, false);
+  DialogButton(buttons, state, "Delete", 0xD7362B, true);
+}
+
+void ViewerDeleteClickedCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->viewer_index >= 0) {
+    ShowDeleteDialog(state, false);
+  }
+}
+
+void ViewerRestoreClickedCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (state != nullptr && state->viewer_index >= 0) {
+    RunPhotoAction(state, PhotoAction::kRestore, false);
+  }
+}
+
+void SelectButtonCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  SetSelectMode(state, !state->select_mode);
+}
+
+void TrashButtonCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  PlayUiHapticEffect(HapticEffect::kImpactLight);
+  SetTrashMode(state, true);
+}
+
+void HeaderBackCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  PlayUiHapticEffect(HapticEffect::kImpactLight);
+  SetTrashMode(state, false);
+}
+
+void ActionAllCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  const bool select = SelectedCount(state) != static_cast<int>(state->photo_count);
+  for (size_t i = 0; i < state->photo_count; ++i) {
+    state->photos[i].selected = select;
+    if (state->photos[i].check != nullptr) {
+      StyleCheck(state->photos[i].check, select);
+    }
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  UpdateActionBar(state);
+}
+
+void ActionDeleteCallback(lv_event_t* event) {
+  ShowDeleteDialog(static_cast<PhotosViewState*>(lv_event_get_user_data(event)), true);
+}
+
+void ActionRestoreCallback(lv_event_t* event) {
+  auto* state = static_cast<PhotosViewState*>(lv_event_get_user_data(event));
+  if (SelectedCount(state) > 0) {
+    RunPhotoAction(state, PhotoAction::kRestore, true);
+  }
+}
+
+lv_obj_t* PillButton(lv_obj_t* parent, const char* text, uint32_t color, int width, int height,
+    lv_event_cb_t callback, PhotosViewState* state) {
+  lv_obj_t* button = lv_button_create(parent);
+  lv_obj_set_size(button, width, height);
+  lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(button, lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, state);
+  lv_obj_t* label = CreateLabel(button, text, 0xFFFFFF, &lvgl_font_google_sans_flex_24);
+  if (label != nullptr) {
+    lv_obj_center(label);
+  }
+  return button;
+}
+
+void CreatePhotoControls(PhotosViewState* state, lv_obj_t* container, int width, int height) {
+  const uint32_t chip = theme::ActiveThemeColors().surface_container_high;
+  const uint32_t text = theme::ActiveThemeColors().on_surface;
+  state->select_button = PillButton(container, "Select", chip, 118, 56, SelectButtonCallback, state);
+  lv_obj_align(state->select_button, LV_ALIGN_TOP_RIGHT, -kSidePadding, kHeaderHeight - 62);
+  state->select_button_label = lv_obj_get_child(state->select_button, 0);
+  lv_obj_set_style_text_color(state->select_button_label, lv_color_hex(text), LV_PART_MAIN);
+
+  // Recently Deleted: a bin and how many wait in it.
+  state->trash_button = PillButton(container, icon::kDelete, chip, 112, 56, TrashButtonCallback, state);
+  lv_obj_align(state->trash_button, LV_ALIGN_TOP_RIGHT, -kSidePadding - 118 - 12, kHeaderHeight - 62);
+  lv_obj_t* bin = lv_obj_get_child(state->trash_button, 0);
+  lv_obj_set_style_text_font(bin, &lvgl_font_material_symbols_fill_32, LV_PART_MAIN);
+  lv_obj_set_style_text_color(bin, lv_color_hex(text), LV_PART_MAIN);
+  lv_obj_align(bin, LV_ALIGN_LEFT_MID, 8, 0);
+  state->trash_button_label = CreateLabel(state->trash_button, "0", text,
+      &lvgl_font_google_sans_flex_24);
+  lv_obj_align(state->trash_button_label, LV_ALIGN_RIGHT_MID, -8, 0);
+
+  state->header_back = lv_button_create(container);
+  lv_obj_set_size(state->header_back, 68, 68);
+  lv_obj_align(state->header_back, LV_ALIGN_TOP_LEFT, 12, kHeaderHeight - 68);
+  lv_obj_set_style_radius(state->header_back, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->header_back, lv_color_hex(chip), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(state->header_back, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(state->header_back, HeaderBackCallback, LV_EVENT_CLICKED, state);
+  lv_obj_t* arrow = CreateLabel(state->header_back, icon::kArrowBack, text,
+      &lvgl_font_material_symbols_fill_32);
+  lv_obj_center(arrow);
+
+  state->trash_note = CreateLabel(container,
+      "Deleted photos stay here until you delete them, or until the storage "
+      "runs low.",
+      theme::ActiveThemeColors().on_surface_variant, &lvgl_font_google_sans_flex_22);
+  lv_obj_set_width(state->trash_note, width - 2 * kSidePadding - 8);
+  lv_label_set_long_mode(state->trash_note, LV_LABEL_LONG_WRAP);
+  lv_obj_set_pos(state->trash_note, kSidePadding + 8, kHeaderHeight);
+
+  state->action_bar = lv_obj_create(container);
+  lv_obj_remove_flag(state->action_bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(state->action_bar, width, kActionBarHeight);
+  lv_obj_set_pos(state->action_bar, 0, height - kActionBarHeight);
+  lv_obj_set_style_radius(state->action_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_border_width(state->action_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(state->action_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->action_bar,
+      lv_color_hex(theme::ActiveThemeColors().surface_container), LV_PART_MAIN);
+  state->action_label = CreateLabel(state->action_bar, "0 selected", text,
+      &lvgl_font_google_sans_flex_22);
+  lv_obj_align(state->action_label, LV_ALIGN_TOP_MID, 0, 6);
+  state->action_all = PillButton(state->action_bar, "All", chip, 110, 68, ActionAllCallback, state);
+  lv_obj_align(state->action_all, LV_ALIGN_TOP_LEFT, 18, 42);
+  lv_obj_set_style_text_color(lv_obj_get_child(state->action_all, 0), lv_color_hex(text), LV_PART_MAIN);
+  state->action_restore = PillButton(state->action_bar, "Restore", 0x0A84FF, 170, 68,
+      ActionRestoreCallback, state);
+  lv_obj_align(state->action_restore, LV_ALIGN_TOP_MID, 0, 42);
+  state->action_delete = PillButton(state->action_bar, "Delete", 0xD7362B, 170, 68,
+      ActionDeleteCallback, state);
+  lv_obj_align(state->action_delete, LV_ALIGN_TOP_RIGHT, -18, 42);
+}
+
+/**
  * @brief Lays out the grid cells; thumbnails arrive later.
  * @param state View state.
  */
@@ -834,7 +1574,8 @@ void RebuildGrid(PhotosViewState* state) {
     const bool card_mounted =
         state->storage != nullptr && state->storage->IsSdCardMounted();
     lv_obj_t* empty = CreateLabel(state->grid,
-        card_mounted || app::GetEdition() == app::Edition::kMini
+        state->trash_mode ? "Nothing here."
+        : card_mounted || app::GetEdition() == app::Edition::kMini
             ? "No photos yet.\nTake one with the Camera app."
             : "No photos yet.\nWithout an SD card they are kept\nin the "
               "phone's own memory.",
@@ -1041,14 +1782,37 @@ lv_obj_t* CreatePhotosView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   ScanPhotos(state);
   RebuildGrid(state);
-
-  if (state->photo_count > 0) {
-    state->thumbnail_timer =
-        lv_timer_create(ThumbnailTimerCallback, kThumbnailTimerMs, state);
-    if (state->thumbnail_timer == nullptr) {
-      LogMessage(LogLevel::kError, __FILE__, __LINE__,
-          "Create thumbnail timer failed\n");
+  char photo_directory[kMaxPathLength] = {};
+  state->trash_count = BuildPhotoDirectoryPath(state, photo_directory, sizeof(photo_directory))
+      ? app::CountTrashedPhotos(photo_directory) : 0;
+  CreatePhotoControls(state, container, config.width, config.height);
+  UpdateHeader(state);
+  UpdateActionBar(state);
+  app::RequestPhotoTrashPurge(state->storage);
+  RegisterConditionalBackNavigationHandler(container, [state]() {
+    if (state->delete_dialog != nullptr) {
+      CloseDeleteDialog(state);
+      return true;
     }
+    if (state->select_mode) {
+      SetSelectMode(state, false);
+      return true;
+    }
+    if (state->trash_mode) {
+      SetTrashMode(state, false);
+      return true;
+    }
+    return false;
+  });
+
+  // Runs with an empty list too: the list can fill when the view changes.
+  state->thumbnail_timer =
+      lv_timer_create(ThumbnailTimerCallback, kThumbnailTimerMs, state);
+  if (state->thumbnail_timer == nullptr) {
+    LogMessage(LogLevel::kError, __FILE__, __LINE__,
+        "Create thumbnail timer failed\n");
+  }
+  if (state->photo_count > 0) {
     // Publish the visible range before the worker starts picking.
     lv_obj_update_layout(container);
     UpdateThumbnails(state);

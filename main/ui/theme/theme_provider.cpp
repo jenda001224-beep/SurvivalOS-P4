@@ -7,6 +7,8 @@
  */
 #include "ui/theme/theme_provider.h"
 
+#include "app/power_saving.h"
+
 namespace lilygo_box::ui::theme {
 namespace {
 
@@ -45,6 +47,28 @@ const ThemeColors& GetThemeColors(const ThemeProvider* provider) {
   return provider == nullptr ? ActiveThemeColors() : provider->colors();
 }
 
-const ThemeColors& ActiveThemeColors() { return *g_active_theme_colors; }
+namespace {
+
+// SurvivalOS: Low Power Mode draws on pure black (a black AMOLED pixel is off),
+// whichever theme is chosen, so the text has to be the dark theme's.
+ThemeColors MakeBlackTheme() {
+  ThemeColors colors = kDarkTheme;
+  colors.surface = 0x000000;
+  colors.surface_dim = 0x000000;
+  colors.surface_container_lowest = 0x000000;
+  colors.wallpaper_background = 0x000000;
+  colors.wallpaper_layer_1 = 0x000000;
+  colors.wallpaper_layer_2 = 0x000000;
+  colors.wallpaper_layer_3 = 0x000000;
+  colors.wallpaper_layer_4 = 0x000000;
+  return colors;
+}
+
+}  // namespace
+
+const ThemeColors& ActiveThemeColors() {
+  static const ThemeColors black_theme = MakeBlackTheme();
+  return app::IsLowPowerModeEnabled() ? black_theme : *g_active_theme_colors;
+}
 
 }  // namespace lilygo_box::ui::theme

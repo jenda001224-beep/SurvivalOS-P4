@@ -13,7 +13,7 @@ namespace lilygo_box::app {
 
 // What Low Power Mode does. The AMOLED panel and the Wi-Fi chip are the two
 // big consumers that are not doing the user's work, so those carry the cuts.
-inline constexpr int kLowPowerBrightnessCapPercent = 30;
+inline constexpr int kLowPowerBrightnessCapPercent = 50;
 inline constexpr int kLowPowerLockTimeoutSeconds = 30;
 // ~15 frames per second instead of 30, and touch read every 20 ms, not 10.
 inline constexpr uint32_t kLowPowerRefreshPeriodMs = 66;

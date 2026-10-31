@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 
@@ -62,6 +63,8 @@ constexpr uint32_t kSearchDelayMs = 250;
 constexpr int64_t kScrollQuietUs = 160 * 1000;
 constexpr int kMaxQuery = 48;
 constexpr int kMaxHits = 4000;
+constexpr int kSwipeDistance = 60;  // finger travel that turns a photo
+constexpr int kStatusBarHeight = 50;
 constexpr int kZoom = 3;  // double tap zooms to this many times the fitted size
 
 // Survival Mode draws the guide as thin red text on black (an AMOLED pixel
@@ -213,6 +216,9 @@ struct NatureViewState {
   int photo_count = 0;
   lv_obj_t* photo_credit = nullptr;
   lv_obj_t* photo_dots[kMaxPhotos] = {};
+  lv_obj_t* photo_strip = nullptr;
+  int photo_index = 0;
+  lv_point_t press_point = {};
   Viewer viewer;
 };
 
@@ -421,6 +427,21 @@ const char* DisplayName(NatureWorld& world, const NatureRecord& record, char* ou
   world.String(record.name_cs, out, size);
   if (out[0] == '\0') world.String(record.name_en, out, size);
   if (out[0] == '\0') world.String(record.name_lat, out, size);
+  // Common names come as the community wrote them: "kopřiva dvoudomá".
+  auto* first = reinterpret_cast<uint8_t*>(out);
+  if (first[0] >= 'a' && first[0] <= 'z') {
+    first[0] -= 'a' - 'A';
+  } else if (first[0] == 0xC3 && first[1] >= 0xA0 && first[1] <= 0xBE && first[1] != 0xB7) {
+    first[1] -= 0x20;  // á é í ó ú ý
+  } else if (first[0] == 0xC4 || first[0] == 0xC5) {
+    // Latin Extended-A: mostly pairs (even upper, odd lower), č ď ě ň ř š ť ů;
+    // in 0x139-0x148 and 0x179-0x17E the pairs are the other way round: ž ľ ł.
+    const uint32_t code = ((first[0] & 0x1Fu) << 6) | (first[1] & 0x3Fu);
+    const bool odd_is_upper = (code >= 0x139 && code <= 0x148) || (code >= 0x179 && code <= 0x17E);
+    if ((code & 1u) == (odd_is_upper ? 0u : 1u)) {
+      first[1] -= 1;
+    }
+  }
   return out;
 }
 
@@ -634,21 +655,40 @@ void ViewerPageDoubleClicked(lv_event_t* event) {
   SetZoom(state, index, !state->viewer.zoomed[index], indev != nullptr ? &point : nullptr);
 }
 
-void ViewerScrollEnded(lv_event_t* event) {
+lv_point_t ActivePoint() {
+  lv_point_t point = {};
+  lv_indev_t* indev = lv_indev_active();
+  if (indev != nullptr) {
+    lv_indev_get_point(indev, &point);
+  }
+  return point;
+}
+
+// One swipe, one photo. LVGL's own snapping of a scrolling strip threw two
+// photos at a time; these strips do not scroll by touch at all.
+void ViewerPagePressCallback(lv_event_t* event) {
   auto* state = static_cast<NatureViewState*>(lv_event_get_user_data(event));
   Viewer& viewer = state->viewer;
-  if (viewer.strip == nullptr || state->photo_count == 0) {
+  const lv_point_t point = ActivePoint();
+  if (lv_event_get_code(event) == LV_EVENT_PRESSED) {
+    state->press_point = point;
     return;
   }
-  const int index = std::clamp(
-      static_cast<int>((lv_obj_get_scroll_x(viewer.strip) + state->width / 2) / state->width), 0,
-      state->photo_count - 1);
-  if (index == viewer.index) {
+  if (viewer.zoomed[viewer.index]) {
+    return;  // dragging moves the zoomed photo
+  }
+  const int dx = point.x - state->press_point.x;
+  const int dy = point.y - state->press_point.y;
+  if (std::abs(dx) < kSwipeDistance || std::abs(dx) < std::abs(dy)) {
     return;
   }
-  // The photo left behind goes back to fitting the screen.
-  SetZoom(state, viewer.index, false, nullptr);
-  viewer.index = index;
+  const int next = viewer.index + (dx < 0 ? 1 : -1);
+  if (next < 0 || next >= state->photo_count) {
+    return;
+  }
+  PlayUiHapticEffect(HapticEffect::kSelection);
+  viewer.index = next;
+  lv_obj_scroll_to_x(viewer.strip, next * state->width, LV_ANIM_ON);
   UpdateViewerLabels(state);
 }
 
@@ -684,21 +724,19 @@ void OpenViewer(NatureViewState* state, int index) {
 
   viewer.strip = lv_obj_create(viewer.root);
   MakePlain(viewer.strip);
-  lv_obj_add_flag(viewer.strip, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(viewer.strip, state->width, state->height);
   lv_obj_set_scroll_dir(viewer.strip, LV_DIR_HOR);
-  lv_obj_set_scroll_snap_x(viewer.strip, LV_SCROLL_SNAP_START);
-  lv_obj_add_flag(viewer.strip, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_set_scrollbar_mode(viewer.strip, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_add_event_cb(viewer.strip, ViewerScrollEnded, LV_EVENT_SCROLL_END, state);
   for (int i = 0; i < state->photo_count; ++i) {
     lv_obj_t* page = lv_obj_create(viewer.strip);
     MakePlain(page);
     viewer.pages[i] = page;
-    lv_obj_add_flag(page, LV_OBJ_FLAG_SNAPPABLE);
     lv_obj_add_flag(page, LV_OBJ_FLAG_CLICKABLE);
-    // At the edge of a zoomed photo the swipe goes on to the next photo.
     lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_remove_flag(page, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(page, ViewerPagePressCallback, LV_EVENT_PRESSED, state);
+    lv_obj_add_event_cb(page, ViewerPagePressCallback, LV_EVENT_RELEASED, state);
     lv_obj_set_scroll_dir(page, LV_DIR_ALL);
     lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_size(page, state->width, state->height);
@@ -770,19 +808,9 @@ void BackButtonCallback(lv_event_t* event) {
   CloseDetail(state);
 }
 
-int PhotoIndexInStrip(const NatureViewState* state, lv_obj_t* strip) {
-  return std::clamp(
-      static_cast<int>((lv_obj_get_scroll_x(strip) + state->width / 2) / state->width), 0,
-      std::max(0, state->photo_count - 1));
-}
-
-void PhotoScrollCallback(lv_event_t* event) {
-  auto* state = static_cast<NatureViewState*>(lv_event_get_user_data(event));
-  lv_obj_t* strip = lv_event_get_target_obj(event);
-  if (state == nullptr || strip == nullptr || state->photo_count == 0) {
-    return;
-  }
-  const int index = PhotoIndexInStrip(state, strip);
+void ShowDetailPhoto(NatureViewState* state, int index) {
+  state->photo_index = index;
+  lv_obj_scroll_to_x(state->photo_strip, index * state->width, LV_ANIM_ON);
   for (int i = 0; i < state->photo_count; ++i) {
     if (state->photo_dots[i] != nullptr) {
       lv_obj_set_style_bg_opa(state->photo_dots[i], i == index ? LV_OPA_COVER : LV_OPA_40,
@@ -797,12 +825,29 @@ void PhotoScrollCallback(lv_event_t* event) {
   lv_label_set_text(state->photo_credit, credit);
 }
 
-void PhotoClickedCallback(lv_event_t* event) {
+// A sideways swipe turns one photo; a tap opens it full screen; anything else
+// is the page scrolling up and down.
+void PhotoFrameCallback(lv_event_t* event) {
   auto* state = static_cast<NatureViewState*>(lv_event_get_user_data(event));
-  lv_obj_t* frame = lv_event_get_current_target_obj(event);
-  const int index = static_cast<int>(reinterpret_cast<intptr_t>(lv_obj_get_user_data(frame)));
-  PlayUiHapticEffect(HapticEffect::kImpactLight);
-  OpenViewer(state, index);
+  const lv_point_t point = ActivePoint();
+  if (lv_event_get_code(event) == LV_EVENT_PRESSED) {
+    state->press_point = point;
+    return;
+  }
+  const int dx = point.x - state->press_point.x;
+  const int dy = point.y - state->press_point.y;
+  if (std::abs(dx) >= kSwipeDistance && std::abs(dx) >= std::abs(dy)) {
+    const int next = state->photo_index + (dx < 0 ? 1 : -1);
+    if (next >= 0 && next < state->photo_count) {
+      PlayUiHapticEffect(HapticEffect::kSelection);
+      ShowDetailPhoto(state, next);
+    }
+    return;
+  }
+  if (std::abs(dx) < 24 && std::abs(dy) < 24) {
+    PlayUiHapticEffect(HapticEffect::kImpactLight);
+    OpenViewer(state, state->photo_index);
+  }
 }
 
 lv_obj_t* AddPill(lv_obj_t* parent, const char* text, uint32_t color) {
@@ -959,8 +1004,9 @@ void OpenDetail(NatureViewState* state, uint32_t species_index) {
   lv_obj_add_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(page, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_size(page, width, state->height);
-  lv_obj_set_pos(page, 0, 0);
+  // Below the status bar, so nothing scrolls under the clock.
+  lv_obj_set_size(page, width, state->height - kStatusBarHeight);
+  lv_obj_set_pos(page, 0, kStatusBarHeight);
   lv_obj_set_style_bg_color(page, lv_color_hex(Surface()), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_flex_flow(page, LV_FLEX_FLOW_COLUMN);
@@ -971,26 +1017,24 @@ void OpenDetail(NatureViewState* state, uint32_t species_index) {
   const int photo_height = width * kPhotoHeightPercent / 100;
   lv_obj_t* strip = lv_obj_create(page);
   MakePlain(strip);
-  lv_obj_add_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(strip, width, photo_height);
   lv_obj_set_scroll_dir(strip, LV_DIR_HOR);
-  lv_obj_set_scroll_snap_x(strip, LV_SCROLL_SNAP_START);
-  lv_obj_add_flag(strip, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_set_scrollbar_mode(strip, LV_SCROLLBAR_MODE_OFF);
+  state->photo_strip = strip;
+  state->photo_index = 0;
   lv_obj_set_style_bg_color(strip, lv_color_hex(Placeholder()), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(strip, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_add_event_cb(strip, PhotoScrollCallback, LV_EVENT_SCROLL_END, state);
   state->photo_count = std::min<int>(species.photo_count, kMaxPhotos);
   for (int i = 0; i < state->photo_count; ++i) {
     lv_obj_t* frame = lv_obj_create(strip);
     MakePlain(frame);
-    lv_obj_add_flag(frame, LV_OBJ_FLAG_SNAPPABLE);
     lv_obj_add_flag(frame, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(frame, width, photo_height);
     lv_obj_set_pos(frame, i * width, 0);
     lv_obj_set_style_clip_corner(frame, true, LV_PART_MAIN);
     lv_obj_set_user_data(frame, reinterpret_cast<void*>(static_cast<intptr_t>(i)));
-    lv_obj_add_event_cb(frame, PhotoClickedCallback, LV_EVENT_CLICKED, state);
+    lv_obj_add_event_cb(frame, PhotoFrameCallback, LV_EVENT_PRESSED, state);
+    lv_obj_add_event_cb(frame, PhotoFrameCallback, LV_EVENT_RELEASED, state);
     size_t size = 0;
     uint8_t* jpeg = world.ReadPhoto(record.first_photo + i, &size);
     // Full size (the pack stores 500 px), so the full-screen view is sharp.
@@ -1024,7 +1068,7 @@ void OpenDetail(NatureViewState* state, uint32_t species_index) {
   }
 
   lv_obj_t* back = RoundButton(page, icon::kArrowBack, BackButtonCallback, state);
-  lv_obj_set_pos(back, 18, 60);
+  lv_obj_set_pos(back, 18, 10);
 
   // Dots and the photographer's credit.
   lv_obj_t* under = lv_obj_create(page);

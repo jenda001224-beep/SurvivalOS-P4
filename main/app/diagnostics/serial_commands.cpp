@@ -20,6 +20,8 @@
 #include "app/power_saving.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
+#include "esp_rom_crc.h"
+#include "app/photo_trash.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -436,6 +438,83 @@ void PrintScreenshot(int quality) {
   std::printf(ok ? "svos-shot-end\n" : "svos: shot encode failed\nsvos-shot-end\n");
 }
 
+// ── SurvivalOS diagnostics: copy a file over the console (tools/devput.py) ───
+
+FILE* g_put_file = nullptr;
+uint8_t* g_put_buffer = nullptr;
+uint32_t g_put_crc = 0;
+uint32_t g_put_bytes = 0;
+uint32_t g_put_lines = 0;
+
+void PutOpen(const char* path) {
+  if (g_put_file != nullptr) {
+    std::fclose(g_put_file);
+  }
+  g_put_file = std::fopen(path, "wb");
+  if (g_put_file != nullptr && g_put_buffer == nullptr) {
+    g_put_buffer = static_cast<uint8_t*>(
+        heap_caps_malloc(32 * 1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  }
+  if (g_put_file != nullptr && g_put_buffer != nullptr) {
+    std::setvbuf(g_put_file, reinterpret_cast<char*>(g_put_buffer), _IOFBF, 32 * 1024);
+  }
+  g_put_crc = 0;
+  g_put_bytes = 0;
+  g_put_lines = 0;
+  std::printf("svos: put %s\n", g_put_file != nullptr ? "open" : "failed");
+}
+
+void PutWrite(const char* text) {
+  if (g_put_file == nullptr) {
+    return;
+  }
+  uint8_t bytes[180];
+  size_t length = 0;
+  uint32_t bits = 0;
+  int count = 0;
+  for (const char* cursor = text; *cursor != '\0' && length < sizeof(bytes); ++cursor) {
+    const char c = *cursor;
+    int value = -1;
+    if (c >= 'A' && c <= 'Z') value = c - 'A';
+    else if (c >= 'a' && c <= 'z') value = c - 'a' + 26;
+    else if (c >= '0' && c <= '9') value = c - '0' + 52;
+    else if (c == '+') value = 62;
+    else if (c == '/') value = 63;
+    if (value < 0) {
+      continue;
+    }
+    bits = (bits << 6) | static_cast<uint32_t>(value);
+    if (++count == 4) {
+      bytes[length++] = static_cast<uint8_t>(bits >> 16);
+      bytes[length++] = static_cast<uint8_t>(bits >> 8);
+      bytes[length++] = static_cast<uint8_t>(bits);
+      count = 0;
+      bits = 0;
+    }
+  }
+  if (count == 3) {
+    bytes[length++] = static_cast<uint8_t>(bits >> 10);
+    bytes[length++] = static_cast<uint8_t>(bits >> 2);
+  } else if (count == 2) {
+    bytes[length++] = static_cast<uint8_t>(bits >> 4);
+  }
+  std::fwrite(bytes, 1, length, g_put_file);
+  g_put_crc = esp_rom_crc32_le(g_put_crc, bytes, length);
+  g_put_bytes += length;
+  if (++g_put_lines % 32 == 0) {
+    std::printf("svos: put %lu\n", static_cast<unsigned long>(g_put_lines));
+  }
+}
+
+void PutClose() {
+  if (g_put_file != nullptr) {
+    std::fclose(g_put_file);
+    g_put_file = nullptr;
+  }
+  std::printf("svos: put done %lu bytes crc %08lx\n", static_cast<unsigned long>(g_put_bytes),
+      static_cast<unsigned long>(g_put_crc));
+}
+
 void RunCommand(char* line) {
   // Opening the port can leave a stray byte in front of the first command.
   line = std::strstr(line, kPrefix);
@@ -480,6 +559,19 @@ void RunCommand(char* line) {
   } else if (std::strcmp(command, "wifi") == 0 && g_targets.wifi != nullptr &&
              std::strcmp(argument, "scan") == 0) {
     ScanWifi();
+  } else if (std::strcmp(command, "put") == 0 && count >= 3) {
+    PutOpen(words[2]);
+  } else if (std::strcmp(command, "rm") == 0 && count >= 3) {
+    std::printf("svos: rm %s\n", std::remove(words[2]) == 0 ? "done" : "failed");
+  } else if (std::strcmp(command, "w") == 0 && count >= 3) {
+    PutWrite(words[2]);
+  } else if (std::strcmp(command, "close") == 0) {
+    PutClose();
+  } else if (std::strcmp(command, "trash") == 0 && count >= 3) {
+    // svos trash <MB>: run the low-storage clean-up as if that little were free.
+    app::SetPhotoTrashLowBytesForTest(static_cast<uint64_t>(std::atoll(words[2])) << 20);
+    app::RequestPhotoTrashPurge(g_targets.storage);
+    std::printf("svos: trash clean-up started\n");
   } else if (std::strcmp(command, "power") == 0 && g_targets.power_press) {
     g_targets.power_press();
     std::printf("svos: power button pressed\n");

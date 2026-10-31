@@ -17,6 +17,7 @@
 #include "app/diagnostics/serial_commands.h"
 #include "app/edition.h"
 #include "app/firmware_update_manager.h"
+#include "app/photo_trash.h"
 #include "app/network_monitor.h"
 #include "app/power_saving.h"
 #include "app/content_sorter.h"
@@ -435,6 +436,7 @@ void StartupSdCardMountTaskEntry(void* context) {
     LogMessage(LogLevel::kWarning, __FILE__, __LINE__,
         "SD card was not mounted at boot\n");
   }
+  app::RequestPhotoTrashPurge(storage);
   vTaskDelete(nullptr);
 }
 

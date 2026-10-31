@@ -32,6 +32,7 @@ enum class SettingsIcon {
   kVolumeUp,
   kBattery,
   kSettings,
+  kStorage,
 };
 
 // 设置首页入口。

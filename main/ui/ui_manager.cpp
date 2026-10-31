@@ -1042,7 +1042,7 @@ bool UiManager::Init(hal::ScreenProvider* screen, hal::LvglPort* lvgl_port,
   lv_obj_remove_flag(root_screen_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(root_screen_, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
   lv_obj_set_style_bg_color(root_screen_,
-      lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
+      lv_color_hex(theme::ActiveThemeColors().surface_dim), LV_PART_MAIN);
   lv_obj_set_style_border_width(root_screen_, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(root_screen_, 0, LV_PART_MAIN);
   InitializeEdgeSwipeIndicator(
@@ -1311,9 +1311,11 @@ bool UiManager::ShowLockScreen() {
   }
 
   RefreshSystemStatusNow();
-  // SurvivalOS: the lock screen is built once and kept; when Survival Mode
-  // was switched since, build it again in the right look (black, dim red).
-  if (lock_screen_ != nullptr && lock_screen_survival_look_ != survival_look::Active()) {
+  // SurvivalOS: the lock screen is built once and kept; when Low Power or
+  // Survival Mode was switched since, build it again in the right look.
+  const int lock_screen_look =
+      survival_look::Active() ? 2 : app::IsLowPowerModeEnabled() ? 1 : 0;
+  if (lock_screen_ != nullptr && lock_screen_look_ != lock_screen_look) {
     lv_obj_delete(lock_screen_);
     lock_screen_ = nullptr;
   }
@@ -1343,7 +1345,7 @@ bool UiManager::ShowLockScreen() {
   if (lock_screen_ == nullptr) {
     return false;
   }
-  lock_screen_survival_look_ = survival_look::Active();
+  lock_screen_look_ = lock_screen_look;
   if (system_status_cache_.battery_management_status_valid()) {
     UpdateLockScreenViewBattery(
         lock_screen_, system_status_cache_.battery_management_status());
@@ -1435,7 +1437,7 @@ void UiManager::ApplyThemePreference(bool enabled) {
       enabled ? theme::ThemeMode::kDark : theme::ThemeMode::kLight);
   if (root_screen_ != nullptr) {
     lv_obj_set_style_bg_color(root_screen_,
-        lv_color_hex(theme_provider_.colors().surface_dim), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().surface_dim), LV_PART_MAIN);
   }
   ApplyWallpaperTheme(launcher_wallpaper_);
 }
@@ -1880,7 +1882,7 @@ void UiManager::ApplyPendingThemeAsync(void* context) {
   self->volume_overlay_.Reset();
   if (self->root_screen_ != nullptr) {
     lv_obj_set_style_bg_color(self->root_screen_,
-        lv_color_hex(self->theme_provider_.colors().surface_dim), LV_PART_MAIN);
+        lv_color_hex(theme::ActiveThemeColors().surface_dim), LV_PART_MAIN);
   }
   ApplyWallpaperTheme(self->launcher_wallpaper_);
   if (self->active_app_entry_ != nullptr) {
@@ -2221,6 +2223,23 @@ void UiManager::RefreshSystemStatus() {
     launcher_shows_survival_ = survival;
     ApplyEditionToLauncher();
     ApplySurvivalLook(survival);
+  }
+  // SurvivalOS: Low Power Mode: pure black behind the home screen, no dock
+  // plate; apps pick the black theme up when they open.
+  const bool black = app::IsLowPowerModeEnabled();
+  if (black != launcher_shows_black_) {
+    launcher_shows_black_ = black;
+    if (root_screen_ != nullptr) {
+      lv_obj_set_style_bg_color(root_screen_,
+          lv_color_hex(theme::ActiveThemeColors().surface_dim), LV_PART_MAIN);
+    }
+    ApplyWallpaperTheme(launcher_wallpaper_);
+    if (dock_button_context_count_ > 0 && dock_button_contexts_[0].cell != nullptr) {
+      lv_obj_t* dock = lv_obj_get_parent(dock_button_contexts_[0].cell);
+      if (dock != nullptr) {
+        lv_obj_set_style_bg_opa(dock, black ? LV_OPA_TRANSP : 28, LV_PART_MAIN);
+      }
+    }
   }
   system_status_cache_.RefreshSystemStatus();
   if (system_status_cache_.rtc_status_valid()) {

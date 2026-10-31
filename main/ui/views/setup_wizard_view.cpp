@@ -67,8 +67,7 @@ constexpr uint64_t kMapsCzechiaBytes = 1'703'518'651ULL;
 constexpr uint64_t kMapsWorldBytes = 3'700'000'000ULL;
 constexpr uint64_t kWikipediaCzechBytes = 3'430'401'584ULL;
 constexpr uint64_t kWikipediaEnglishBytes = 52'690'706'555ULL;
-// The world field guide; the exact size is on the web page.
-constexpr uint64_t kNatureBytes = 30'000'000'000ULL;
+constexpr uint64_t kNatureBytes = 15'688'705'932ULL;
 
 constexpr char kContentPageUrl[] =
     "https://jenda001224-beep.github.io/SurvivalOS-P4/";

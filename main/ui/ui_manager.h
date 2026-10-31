@@ -719,7 +719,7 @@ class UiManager final {
   lv_obj_t* startup_progress_fill_ = nullptr;
   lv_obj_t* first_boot_welcome_screen_ = nullptr;
   lv_obj_t* lock_screen_ = nullptr;
-  bool lock_screen_survival_look_ = false;
+  int lock_screen_look_ = 0;  // 0 normal, 1 Low Power, 2 Survival
   lv_obj_t* power_menu_ = nullptr;
   PromptDialogState keyboard_expansion_unavailable_prompt_;
   VolumeOverlay volume_overlay_;
@@ -770,6 +770,7 @@ class UiManager final {
   bool open_wifi_settings_after_setup_ = false;
   // Survival Mode state the launcher was last laid out for.
   bool launcher_shows_survival_ = false;
+  bool launcher_shows_black_ = false;
   size_t button_context_count_ = 0;
   size_t dock_button_context_count_ = 0;
   size_t page_index_ = 0;

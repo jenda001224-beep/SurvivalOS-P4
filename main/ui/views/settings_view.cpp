@@ -95,6 +95,8 @@ SettingsIconStyle ResolveSettingsIconStyle(app::SettingsIcon icon_type) {
       return {.symbol = icon::kBatteryAndroidFull, .color = 0x55C76C};
     case app::SettingsIcon::kSettings:
       return {.symbol = icon::kSettings, .color = 0x8790B0};
+    case app::SettingsIcon::kStorage:
+      return {.symbol = icon::kSdStorage, .color = 0x8E8E93};
   }
   return {.symbol = icon::kInfo, .color = 0x8790B0};
 }
@@ -275,6 +277,15 @@ void PowerBatteryRowClickedEventCallback(lv_event_t* event) {
  * @brief 从设置主页打开更多设置详情页
  * @param event LVGL 事件对象
  */
+void SdCardRowClickedEventCallback(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+
+  ShowSdCardPage(
+      static_cast<SettingsViewState*>(lv_event_get_user_data(event)));
+}
+
 void MoreSettingsRowClickedEventCallback(lv_event_t* event) {
   if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
     return;
@@ -449,6 +460,9 @@ bool CreateSettingsList(lv_obj_t* parent, int width, SettingsViewState* state) {
     } else if (IsId(item.id, "power_battery")) {
       lv_obj_add_event_cb(
           row, PowerBatteryRowClickedEventCallback, LV_EVENT_CLICKED, state);
+    } else if (IsId(item.id, "sd_card")) {
+      lv_obj_add_event_cb(
+          row, SdCardRowClickedEventCallback, LV_EVENT_CLICKED, state);
     } else if (IsId(item.id, "more_settings")) {
       lv_obj_add_event_cb(
           row, MoreSettingsRowClickedEventCallback, LV_EVENT_CLICKED, state);

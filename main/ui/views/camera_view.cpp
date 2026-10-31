@@ -19,6 +19,7 @@
 #include "base/logger.h"
 #include "ui/haptic_feedback.h"
 #include "app/edition.h"
+#include "app/photo_trash.h"
 #include "hal/providers/storage_provider.h"
 #include "hal/providers/rtc_provider.h"
 #include "esp_heap_caps.h"
@@ -860,6 +861,8 @@ lv_obj_t* CreateCameraView(lv_obj_t* parent, const app::AppEntry& app_entry,
   }
   state->camera = config.camera;
   state->storage = config.storage;
+  // Room for new photos: Recently Deleted gives way when storage runs low.
+  app::RequestPhotoTrashPurge(state->storage);
   state->rtc = config.rtc;
   state->container = container;
   state->width = config.width;

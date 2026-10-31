@@ -439,8 +439,8 @@ lv_obj_t* CreateLockScreenView(
   WallpaperObjects wallpaper;
   CreateWallpaperObjects(
       lock_screen, options.screen_width, options.screen_height, &wallpaper);
-  // SurvivalOS: Survival Mode keeps the panel almost dark: no wallpaper.
-  if (survival_look::Active()) {
+  // SurvivalOS: Low Power and Survival Mode keep the panel dark: no wallpaper.
+  if (app::IsLowPowerModeEnabled()) {
     lv_obj_set_style_bg_color(lock_screen, lv_color_hex(survival_look::kBlack), LV_PART_MAIN);
     for (lv_obj_t* layer : wallpaper.layers) {
       if (layer != nullptr) {

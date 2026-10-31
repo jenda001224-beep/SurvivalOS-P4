@@ -518,6 +518,13 @@ bool ShowLockScreenPage(SettingsViewState* state);
 bool ShowMoreSettingsPage(SettingsViewState* state);
 
 /**
+ * @brief Opens the SD Card page: free room and what takes it.
+ * @param state Settings view state.
+ * @return true when the page opened.
+ */
+bool ShowSdCardPage(SettingsViewState* state);
+
+/**
  * @brief 根据当前硬件状态刷新键盘扩展页面控件
  * @param state 设置页状态
  */

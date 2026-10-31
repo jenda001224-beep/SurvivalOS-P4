@@ -75,6 +75,59 @@ uint8_t* ReadFileIntoDecoderBuffer(const char* path, size_t* size_bytes) {
  * @param scale Desired factor.
  * @return A factor the PPA accepts, never below 1/16.
  */
+// SurvivalOS: the hardware decoder only takes pictures that are a whole number
+// of blocks ("Picture sizes not divisible by 8 are not supported", or an output
+// size it computes larger than the picture). Photos from other cameras rarely
+// are, but their data always holds whole blocks: the encoder fills the last
+// ones up. So the header in our copy is rewritten to the size of the blocks,
+// and the fill is cut off after decoding.
+// @return true when the header was found; width and height are the true size.
+bool AlignJpegHeaderToBlocks(uint8_t* data, size_t size, uint32_t* width, uint32_t* height) {
+  size_t cursor = 2;  // past SOI
+  while (cursor + 9 < size) {
+    if (data[cursor] != 0xFF) {
+      return false;
+    }
+    const uint8_t marker = data[cursor + 1];
+    if (marker == 0xFF) {
+      ++cursor;
+      continue;
+    }
+    const size_t length = (static_cast<size_t>(data[cursor + 2]) << 8) | data[cursor + 3];
+    if (marker == 0xC0 || marker == 0xC1) {
+      const uint32_t h = (static_cast<uint32_t>(data[cursor + 5]) << 8) | data[cursor + 6];
+      const uint32_t w = (static_cast<uint32_t>(data[cursor + 7]) << 8) | data[cursor + 8];
+      const uint32_t components = data[cursor + 9];
+      if (h == 0 || w == 0 || cursor + 10 + components * 3 > size) {
+        return false;
+      }
+      uint32_t max_h = 1;
+      uint32_t max_v = 1;
+      for (uint32_t i = 0; i < components; ++i) {
+        const uint8_t sampling = data[cursor + 11 + i * 3];
+        max_h = std::max<uint32_t>(max_h, sampling >> 4);
+        max_v = std::max<uint32_t>(max_v, sampling & 0x0F);
+      }
+      const uint32_t block_w = 8 * max_h;
+      const uint32_t block_h = 8 * max_v;
+      const uint32_t aligned_w = (w + block_w - 1) / block_w * block_w;
+      const uint32_t aligned_h = (h + block_h - 1) / block_h * block_h;
+      data[cursor + 5] = static_cast<uint8_t>(aligned_h >> 8);
+      data[cursor + 6] = static_cast<uint8_t>(aligned_h);
+      data[cursor + 7] = static_cast<uint8_t>(aligned_w >> 8);
+      data[cursor + 8] = static_cast<uint8_t>(aligned_w);
+      *width = w;
+      *height = h;
+      return true;
+    }
+    if (marker == 0xDA || length < 2) {
+      return false;  // scan data before a frame header: leave it to the driver
+    }
+    cursor += 2 + length;
+  }
+  return false;
+}
+
 float QuantizeScale(float scale) {
   if (scale >= 1.0F) {
     return 1.0F;
@@ -142,6 +195,9 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
     return false;
   }
   std::memcpy(owned, data, size);
+  uint32_t true_width = 0;
+  uint32_t true_height = 0;
+  const bool header_found = AlignJpegHeaderToBlocks(owned, size, &true_width, &true_height);
   const uint8_t* file_data = owned;
   const size_t file_bytes = size;
 
@@ -207,6 +263,17 @@ bool DecodeJpegBuffer(const uint8_t* data, size_t size, uint32_t max_width,
     return false;
   }
 
+  // Cut the fill off: rows move up to the true width, in place.
+  if (header_found && true_width <= info.width && true_height <= info.height &&
+      (true_width != info.width || true_height != info.height)) {
+    const size_t decoded_stride = static_cast<size_t>(info.width) * sizeof(uint16_t);
+    const size_t true_stride = static_cast<size_t>(true_width) * sizeof(uint16_t);
+    for (uint32_t row = 1; row < true_height; ++row) {
+      std::memmove(full_pixels + row * true_stride, full_pixels + row * decoded_stride, true_stride);
+    }
+    info.width = true_width;
+    info.height = true_height;
+  }
   image->source_width = info.width;
   image->source_height = info.height;
 
